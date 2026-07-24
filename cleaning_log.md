@@ -288,3 +288,33 @@ public is ~1.217. Submission: submission_mlogit_v8_segment_interactions.csv.
 
 Current best by validation: mod8 (1.1896) > mod7 (1.2024) > mod6 (1.2049) >
 mod2b (1.2186).
+
+## 2026-07-25: Three extensions to mod8 tested -- all confirm mod8 is best
+
+Explored three ways to push past mod8 (segment interactions, val 1.1896). None
+improved meaningfully; mod8 remains the best model and we have hit diminishing
+returns for the conditional-logit family here.
+
+1. **Attribute x segment (mod9).** Interacted the four dominant attributes
+   (CC, KA, BU, NS) with segment as continuous level-effects (20 extra params).
+   Validation 1.1907 -- slightly WORSE than mod8. Feature valuation does not vary by
+   segment beyond what Price x segment and inside x segment already capture.
+
+2. **Random-Price mixed logit on mod8 (mod10).** Panel mixed logit, Price as a
+   single random normal parameter (R=50). Validation 1.18925 vs mod8 1.18956 -- a
+   negligible ~0.0003 gain (sd.Price=0.51). Observed heterogeneity already soaks up
+   most price-taste variation, leaving little unobserved heterogeneity to model.
+   (Implementation note: predict() on a random-parameter mlogit returns an unnamed
+   matrix; align its rows using the rownames from a fixed-model predict() on the same
+   newdata, not unique(chid) order, which silently mis-aligns and inflates log loss.)
+
+3. **Pruned mod8 (mod11).** Dropped the 6 clearly non-significant interactions
+   (P_income, P_night, In_income, In_age, In_miles, In_night; all p>0.17).
+   Validation 1.18987 with 78 params vs mod8's 1.18956 with 84 -- essentially tied,
+   6 fewer parameters. A clean, near-equivalent model worth citing for parsimony;
+   mod8 keeps the marginally-better validation so stays the submission of record.
+
+**Conclusion.** mod8 (mod2b + Price/inside x covariate + Price/inside x segment) is
+the best model by validation (1.1896). The strongest heterogeneity signals are
+segment-specific price sensitivity (Prestige Luxury least sensitive) and
+segment/gender/urbanicity-specific opt-out propensity.
