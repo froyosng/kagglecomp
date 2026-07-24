@@ -188,6 +188,46 @@ Current best model by validation log loss: the factor-coded conditional logit wi
 alt2/alt3 dummies (mod2b/v2b, 1.219), closely followed by the factor-coded model
 without alternative-specific terms (mod2a, 1.220).
 
+## 2026-07-25: Observed heterogeneity via covariate interactions (new best model)
+
+Acted on the LASSO finding that respondent covariates carry signal the conditional
+logit models weren't using. In a conditional logit, respondent-level covariates are
+constant across the 4 alternatives, so they cannot enter as main effects (they'd
+cancel in the choice probabilities) -- they must be **interacted** with something
+that varies across alternatives.
+
+**mod6 -- Price x covariate interactions.** Starting from mod2b (factor-coded
+attributes + Price + alt2/alt3 dummies, no ASCs), added Price interacted with four
+standardized respondent covariates: income, age, miles driven/yr, and night-driving
+percentage. Because Price varies across alternatives while the covariate is constant
+within respondent, the product varies across alternatives and gets a generic
+coefficient -- no ASC identification conflict. Interpretation: price sensitivity
+itself differs by respondent. Validation log loss **1.205 vs mod2b's 1.219** -- the
+largest single improvement since introducing factor coding.
+
+**mod7 -- add inside-good x covariate interactions (current best).** Added an
+"inside" dummy (1 for the three real bundles, 0 for the opt-out alt 4) interacted
+with seven standardized covariates (income, age, miles, night, gender, urbanicity,
+education). These let the propensity to buy *any* bundle vs. decline vary by
+respondent -- identifiable because alt 4 is the fixed reference. Validation log loss
+**1.2024**. Largest opt-out-heterogeneity effects: inside x gender (0.145) and
+inside x urbanicity (0.090). Gain over mod6 is small (~0.0025) vs mod6's large gain
+over mod2b, so returns are clearly diminishing.
+
+**Scaling correctness note.** All standardization constants (mean/sd) are computed
+on the *training* subset only and applied identically to validation and test, so the
+coefficients see the same transformation everywhere. An earlier pass that re-scaled
+each split by its own mean/sd gave nearly identical numbers (respondent covariates
+are similarly distributed across the random respondent split), but the training-based
+scaler is the correct choice and is what the saved model and submission use.
+
+Source for the observed-heterogeneity interaction approach: Train, K. (2009)
+*Discrete Choice Methods with Simulation*, ch. 2-3 (systematic taste variation via
+interactions of alternative attributes with decision-maker characteristics).
+
+Submission written: `submission_mlogit_v7_covariate_interactions.csv`. Current best
+by validation log loss: **mod7 (1.2024)**, then mod6 (1.2049), then mod2b (1.2186).
+
 ## Template for future entries
 
 ```
@@ -195,3 +235,56 @@ without alternative-specific terms (mod2a, 1.220).
 **Checks performed:** ...
 **Findings / decisions:** ...
 ```
+
+## 2026-07-25: LASSO multinomial and regsubsets screening
+
+**LASSO-regularized multinomial logit (glmnet).** Fit a cross-validated LASSO
+multinomial logistic regression (family="multinomial", type.multinomial="grouped")
+on wide-format data, using all 80 alt-specific attribute/price columns as
+independent per-class predictors (not tied to a single shared slope like
+mlogit's conditional logit) plus respondent covariates. Used 5-fold CV grouped
+by respondent (Case) to avoid leaking a respondent's 19 repeated tasks across
+folds. Validation log loss: 1.226 -- better than the continuous conditional
+logit (1.236) but worse than the factor-coded conditional logit (1.219-1.220).
+At lambda.min, 58 of 151 candidate predictors were retained per class,
+including several respondent covariates (segment, miles, night, ppark, gender,
+age, educ, region, Urb, income) not used in any mlogit model so far -- worth
+considering as candidate additions/interactions in a refined choice model.
+Source: glmnet package (Friedman, Hastie, Tibshirani).
+
+**Regsubsets screening (linear-probability heuristic).** Used `leaps::regsubsets`
+on a linear-probability approximation (chosen ~ 20 attributes, long format) purely
+as a variable-importance screening tool -- not a final model, since regsubsets
+requires a continuous/lm response and can't natively fit the categorical choice
+outcome. Result: adjusted R^2 kept improving through all 20 variables (no
+attribute could be safely dropped), but the entry order showed Price entering
+first and alone explaining most of the variation (R^2 = 0.066 of a total 0.077
+across all 20 attributes), followed by CC, KA, BU, NS. This confirms the full
+attribute set used in the conditional logit models is justified rather than
+overfit padding, and that Price is by far the dominant driver of choice.
+
+**Current best model remains** the factor-coded conditional logit with alt2/alt3
+dummies (mod2b/v2b, 1.219 validation).
+
+## 2026-07-25: mod7 public LB and segment interactions (mod8, new best)
+
+**mod7 public LB result.** Submitted to Kaggle: public 1.230 vs validation 1.2024,
+gap 0.028 -- comparable to (slightly under) mod1's 0.034 gap, so the covariate
+interactions generalize rather than overfit, and mod7 clearly beats mod1's public
+1.270. Validation stays optimistic by a small, consistent margin and remains a
+trustworthy tool for ranking models.
+
+**Segment interactions (mod8, new best).** Added Price x segment and inside-good x
+segment interactions to mod7. `segment` is the respondent's car-market segment (6
+levels: Full-size Pickup, Midsize Car, Midsize Luxury Utility, Midsize Utility,
+Prestige Luxury Sedan, Small Car), a respondent-level covariate. Built 5 Price x
+segment + 5 inside x segment dummy columns explicitly (segment 1 = reference).
+Rationale: people shopping different vehicle segments plausibly differ in both price
+sensitivity and baseline willingness to buy any bundle vs. opt out. Validation log
+loss 1.1896 vs mod7's 1.2024 -- a ~0.013 gain, larger than mod7's gain over mod6, so
+segment is a genuinely strong new signal. The Prestige Luxury Sedan segment is the
+least price-sensitive (P_seg5 = 0.166). If mod7's ~0.028 gap holds, mod8's expected
+public is ~1.217. Submission: submission_mlogit_v8_segment_interactions.csv.
+
+Current best by validation: mod8 (1.1896) > mod7 (1.2024) > mod6 (1.2049) >
+mod2b (1.2186).
