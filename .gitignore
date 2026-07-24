@@ -47,3 +47,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+.posit/assistant
+
+# Raw competition data and derived/cached data objects (not versioned; regenerate locally)
+csv files/
+data_processed/
