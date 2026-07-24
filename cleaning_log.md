@@ -318,3 +318,24 @@ returns for the conditional-logit family here.
 the best model by validation (1.1896). The strongest heterogeneity signals are
 segment-specific price sensitivity (Prestige Luxury least sensitive) and
 segment/gender/urbanicity-specific opt-out propensity.
+
+## 2026-07-25: xgboost comparison and 5-fold CV on mod8
+
+**Gradient-boosted trees (different model family).** Fit xgboost (multi:softprob,
+4 classes) on wide-format data: 80 alt-specific attribute/price columns + 15
+respondent-covariate columns. nrounds tuned via 5-fold respondent-grouped xgb.cv
+(best 73; eta 0.1, max_depth 4, subsample/colsample 0.8), then evaluated once on the
+same held-out validation respondents. Validation log loss 1.2042 -- worse than mod8
+(1.1896) and about level with mod7. A structure-free tree ensemble does not beat the
+conditional logit because the choice task's random-utility structure (within-task
+comparison of alternatives, generic attribute slopes, a designed opt-out) is encoded
+directly by the logit but must be learned from raw features by xgboost. Source:
+xgboost (Chen & Guestrin 2016).
+
+**Respondent-level 5-fold CV on mod8.** The 1.1896 figure for mod8 came from a single
+80/20 respondent split. Refit mod8 across 5 respondent-grouped folds (each fold: train
+908 respondents, validate 227), recomputing the standardization scaler within each
+fold's training data, and pooled the held-out negative log-likelihood over all 21,565
+choice tasks. Pooled CV log loss 1.1665 -- tighter and slightly more optimistic than
+the single split (1.1896), indicating the single validation fold was a bit harder than
+average. Best estimate of mod8's generalization log loss is ~1.167.
