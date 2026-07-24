@@ -102,6 +102,92 @@ all 11 pairs (`segment`, `year`, `miles`, `night`, `ppark`, `gender`, `age`, `ed
 class should have its source recorded here and in `submissions_log.csv`'s
 `source_citation` column, since the report requires this to be documented.
 
+## 2026-07-24: Modeling notes for the report -- ASC identification issue, factor vs. continuous, and mixed logit
+
+**1. Alternative-specific intercept (ASC) identification conflict with factor-coded attributes**
+
+When attribute levels are dummy-coded (factors) with 0 as the reference level, alternative
+4 (the opt-out) is *always* at the reference level for every attribute simultaneously --
+and no other alternative (1-3) ever has this exact all-reference-level profile (verified:
+0 occurrences among alts 1-3 in `train`). This means an ASC for alternative 4 cannot be
+separately identified from the "all-baseline" utility once attributes are dummy-coded --
+they are perfectly confounded, producing a computationally singular Hessian in `mlogit`.
+This is a structural identification issue caused by the opt-out's design (constant,
+all-zero attributes), not a data error. Two ways to work around it, both tried:
+
+- Drop ASCs entirely (`mod2b`): alt 4's utility is fixed at 0 by construction, with no
+  free parameter needed; all variation is captured through the attribute coefficients
+  of alts 1-3 relative to that fixed 0.
+- Keep only alt-specific dummies for alternatives 2 and 3 (not 4) (`mod3`): recovers
+  some "position/order" effect without re-introducing the identification conflict.
+
+Continuous-coded attributes (`mod1`) don't have this problem because 0 is just a
+data value multiplied by a slope (contributing exactly 0 to utility), not a
+dropped reference category requiring separate identification.
+
+**2. Attribute levels: continuous vs. categorical (factor) coding**
+
+`mod1` (continuous, generic linear slope per attribute) assumes utility changes
+linearly with each attribute's level code (0-6 depending on attribute). This is a
+strong assumption with no particular justification -- there's no reason a level of "4"
+should be exactly twice as good/bad as a level of "2". Refitting with attributes as
+factors (`mod2b`, `mod3`) relaxes this and improved validation log loss from 1.236
+(continuous) to ~1.219-1.220 (factors), suggesting the attribute-level effects are
+somewhat non-linear. Trade-off: factor coding uses ~3x more parameters (61 vs ~21),
+so there's more estimation noise per coefficient, but the net effect on held-out
+validation was still an improvement.
+
+**3. Mixed logit (random parameters) -- a cautionary overfitting result**
+
+Fit `mod4`: a panel mixed logit (`mlogit`, `panel = TRUE`, grouped by respondent
+`Case`) with independent normal random parameters on all 20 continuous attributes
+(uncorrelated, R = 100 Halton draws, `method = "bhhh"`; source: `mlogit` package /
+Croissant's mixed logit vignette, `vignette("c5.mxl", "mlogit")`, and Train, K. (2009)
+*Discrete Choice Methods with Simulation*, referenced therein).
+
+- Training log-likelihood improved substantially: -16,449 (mod4) vs. -20,432 (mod1
+  continuous, fixed parameters) -- a large apparent improvement in fit.
+- But validation log loss was *worse*: 1.247 (mod4) vs. 1.236 (mod1) and ~1.219
+  (factor models mod2b/mod3).
+
+This is a textbook illustration of overfitting: allowing every respondent's attribute
+sensitivities to vary freely (20 random parameters estimated from only 19 choice
+observations per respondent) lets the model fit person-specific idiosyncrasies in the
+training data that don't generalize. This directly supports the earlier concern about
+the public leaderboard not necessarily reflecting a model's true quality -- a model can
+look much better by an in-sample/likelihood measure while doing worse on held-out data.
+**Not submitted to Kaggle** given the validation result is already worse than existing
+factor models; logged as a negative result in `submissions_log.csv`.
+
+**Practical takeaway for model selection:** favor models with better *validation* log
+loss over models with better *training* log-likelihood -- the two diverged clearly in
+this comparison, which is exactly the kind of check the validation split was built for.
+
+## 2026-07-25: Lighter mixed logit (Price only) and a CART comparison
+
+**Mixed logit with a single random parameter (Price only).** Refit the panel mixed
+logit with only Price as a random (normal) parameter and all other 19 attributes
+fixed/generic. Training log-likelihood: -16,641 (between mod1's -20,432 and the
+fully-random mod4's -16,449). Validation log loss: 1.235, essentially matching mod1
+(1.236) and clearly better than the fully-random version (1.247). sd.Price was large
+and highly significant, consistent with genuine respondent-level heterogeneity in price
+sensitivity. Conclusion: restricting the random-parameters structure to a single,
+substantively-motivated coefficient avoids the overfitting seen when all 20 attributes
+were allowed to vary.
+
+**CART (rpart) as a non-logit comparison.** Fit a default-complexity classification
+tree (rpart, method="class") on the wide-format data (all 80 alternative-specific
+attribute/price columns plus respondent covariates as factors), predicting which of the
+4 alternatives was chosen directly (source: class material, rpart package). Validation
+log loss: 1.293, better than the uniform benchmark (1.386) but worse than every
+mlogit-family model tried (1.219-1.247). This fits expectations: the choice task has an
+underlying random-utility structure that logit models are built to exploit, while a
+single decision tree partitions the covariate space more crudely.
+
+Current best model by validation log loss: the factor-coded conditional logit with
+alt2/alt3 dummies (mod2b/v2b, 1.219), closely followed by the factor-coded model
+without alternative-specific terms (mod2a, 1.220).
+
 ## Template for future entries
 
 ```
