@@ -339,3 +339,31 @@ fold's training data, and pooled the held-out negative log-likelihood over all 2
 choice tasks. Pooled CV log loss 1.1665 -- tighter and slightly more optimistic than
 the single split (1.1896), indicating the single validation fold was a bit harder than
 average. Best estimate of mod8's generalization log loss is ~1.167.
+
+## 2026-07-25: Regularized interaction selection (glmnet stratified-Cox)
+
+Implemented the "next step" the report proposes: a regularized conditional logit that
+selects interactions automatically while keeping the choice-model structure. Used the
+equivalence between conditional logit and a stratified Cox partial likelihood (each
+choice task = one stratum, chosen alternative = the event), which lets glmnet
+(family="cox", alpha=1) fit an L1-penalized choice model. Design pool: 63 core
+unpenalized terms (19 attribute level dummies + Price + alt2/alt3 dummies) plus 195
+penalized candidate interactions (Price/inside x 7 covariates, Price/inside x segment,
+and every attribute x segment and attribute x {income,age,miles,night}). lambda chosen
+by 5-fold respondent-grouped cv.glmnet.
+
+Results (validation log loss):
+- lambda.1se: 1.21858, drops ALL interactions -> reproduces mod2b (1.2186). This is a
+  clean correctness check confirming the Cox = conditional-logit equivalence.
+- lambda.min: 1.19542, keeps 13 interactions.
+- relaxed refit (unpenalized MLE on core + 13 selected): 1.19369.
+- hand-built mod8: 1.18956 (still best).
+
+The LASSO independently rediscovered mod8's core heterogeneity structure -- Price x
+segment (seg3, seg5), Price x age, inside x gender, inside x urbanicity -- from a
+195-term pool, plus a couple of attribute interactions mod8 lacks (NS_seg3, KA_nighta).
+This confirms mod8's hand-chosen interactions are genuine signal rather than overfit
+padding, but automated selection does not beat mod8: the cross-validated L1 penalty is
+more parsimonious (13 vs ~21 interactions) at a small cost (~0.004), and even removing
+shrinkage bias via the relaxed refit does not close the gap. mod8 remains the best
+model. Source: glmnet (Friedman/Hastie/Tibshirani); Cox partial-likelihood equivalence.
