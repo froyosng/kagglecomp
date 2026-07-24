@@ -367,3 +367,48 @@ padding, but automated selection does not beat mod8: the cross-validated L1 pena
 more parsimonious (13 vs ~21 interactions) at a small cost (~0.004), and even removing
 shrinkage bias via the relaxed refit does not close the gap. mod8 remains the best
 model. Source: glmnet (Friedman/Hastie/Tibshirani); Cox partial-likelihood equivalence.
+
+## 2026-07-25: Bottom-up fresh review -- task-fatigue, region/ppark, and an ensemble
+
+Took a deliberate fresh-eyes pass over the whole project to find signal we had not
+adapted. Three findings, all acted on.
+
+**1. Test respondents are entirely new people.** train = Case 1–1135, test = Case
+1136–1398 (263 respondents × 19 tasks = 4,997 rows), zero overlap. This is a key
+structural fact: we can never personalize to a specific test respondent, so
+respondent-specific random effects (mixed logit) cannot transfer -- only OBSERVED
+heterogeneity (covariate/segment/region interactions) generalizes. It explains cleanly
+why every mixed-logit attempt failed to beat the fixed observed-heterogeneity models,
+and confirms the respondent-level train/val split and 5-fold CV are the correct
+validation design (they mimic "predict for unseen respondents").
+
+**2. Survey fatigue (Task position).** Opt-out share rises monotonically from ~24%
+(Task 1) to ~34% (Tasks 15–19). Adding In_task (inside × centered Task) and P_task
+(Price × centered Task) to mod8 helped: single-split val 1.1866 vs 1.1896, and 5-fold
+CV 1.16221 vs mod8's 1.16618. P_task is highly significant and In_task is not -- so the
+fatigue effect runs through PRICE SENSITIVITY (respondents get more price-sensitive as
+the survey drags on), not a bare opt-out drift. Transfers to test (same 19 tasks).
+
+**3. Region and parking (previously unused covariates).** Added inside × and Price ×
+interactions for regionind (5 levels) and pparkind (5 levels), 16 new params. Single-
+split val 1.1696 (a large jump), and -- crucially -- 5-fold CV 1.15671 vs m8t's 1.16221,
+so the gain is CV-confirmed, not single-split overfitting. This "m8tr" (mod8 + task +
+region + ppark) is the best single conditional-logit model. year remains unused (near-
+constant / uninformative).
+
+**4. Two-family ensemble.** Blended the best conditional logit (m8tr) with xgboost
+(multi:softprob, nrounds=73). Even though xgboost alone (CV 1.1787) is worse than m8tr
+(CV 1.1567), the families make different errors, so a weighted average helps. Weight
+chosen by 5-fold CV on out-of-fold predictions (no leakage), flat optimum 0.65–0.75;
+picked 0.70 m8tr / 0.30 xgb -> CV 1.15166. Final models refit on ALL training data;
+test predictions blended and written to `submission_ensemble_v9_mlogit_xgb.csv`.
+This is the current best. Source: xgboost (Chen & Guestrin 2016); ensemble averaging.
+
+CV numbers this section use seed-4821 respondent folds; under those folds plain mod8 =
+1.16618, so the progression is mod8 1.1662 -> +task 1.1622 -> +region/ppark 1.1567 ->
++xgboost ensemble 1.1517.
+
+Reproducibility: the unified feature builder is `build_all(df, ctr, scl)` (segment +
+task + region + ppark interactions, scaler from training). The CV loop refits all
+mlogit specs and xgboost per fold and stores OOF matrices (OOF_m8, OOF_m8t, OOF_m8tr,
+OOF_xgb) for the weight search.

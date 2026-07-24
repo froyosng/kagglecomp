@@ -32,6 +32,15 @@
   row id (21566-26562).
 
 ## Data quality findings (see `cleaning_log.md` for full detail)
+- **Test respondents are DISJOINT from train**: train is `Case` 1–1135, test is
+  1136–1398 (263 new respondents × 19 tasks = 4,997 rows), zero overlap. Consequence:
+  we can never personalize to a specific test respondent, so respondent-specific random
+  effects (mixed logit) cannot transfer -- only OBSERVED heterogeneity (covariate/segment
+  interactions) generalizes. This is why the mixed-logit models never beat the fixed
+  observed-heterogeneity models, and why the respondent-level train/val split & CV are
+  the right validation design (they mimic "predict for unseen respondents").
+- Survey-fatigue effect: opt-out share rises from ~24% (Task 1) to ~34% (Tasks 15–19);
+  `Task` position is a usable, transferable predictor (test respondents also did 19 tasks).
 - No missing values or duplicate rows in train.
 - Alternative 4 (opt-out): all attributes/price = 0 always; chosen 30.2% of the
   time overall. The all-reference-level attribute profile NEVER occurs among
@@ -69,9 +78,19 @@ then `id <- idx(mf, 1, 2)` internally gives panel grouping by respondent.
   instead of tibbles when this happens.
 
 ## Models tried so far (validation log loss, best to worst)
+Note: rows added 2026-07-25 (bottom-up review onward) report BOTH single-split val
+and 5-fold respondent-grouped CV where available; CV (seed 4821 folds) is the more
+reliable number. Under the same CV folds, plain mod8 = 1.1662 (baseline for comparing
+the new terms).
+
 | Model | Val. log loss | Public LB | Notes |
 |---|---|---|---|
-| **mod8**: mod7 + Price×segment + inside-good×segment interactions | **1.1896** | pending | **current best**, `submission_mlogit_v8_segment_interactions.csv` (ready to submit) |
+| **ensemble_v9**: 0.70×(mod8+task+region+ppark) + 0.30×xgboost | **1.1517 (CV)** | pending | **CURRENT BEST**; `submission_ensemble_v9_mlogit_xgb.csv` (ready to submit). Blend weight chosen by 5-fold CV on out-of-fold preds; flat optimum 0.65–0.75 |
+| m8tr: mod8 + task-fatigue + region× + ppark× interactions | 1.1696 / **1.1567 (CV)** | -- | best single mlogit; region/ppark gain CV-confirmed (not just single-split) |
+| m8t: mod8 + task-fatigue (In_task, P_task) | 1.1866 / 1.1622 (CV) | -- | P_task highly significant: price sensitivity rises over the 19 tasks (survey fatigue) |
+| xgboost: gradient-boosted trees, multiclass (nrounds=73) | 1.2042 / 1.1787 (CV) | -- | worse alone, but valuable in ensemble (makes different errors than the logit) |
+| mod8: mod7 + Price×segment + inside×segment interactions | 1.1896 / 1.1662 (CV) | pending | superseded by m8tr/ensemble; `submission_mlogit_v8_segment_interactions.csv` |
+| glmnet cox LASSO (stratified-Cox = conditional logit, L1 interaction selection) | 1.1937 | -- | rediscovers mod8's structure from a 195-term pool; confirms but doesn't beat it |
 | mod7: mod2b + Price×covariate + inside-good×covariate interactions | 1.2024 | **1.230** | gap vs val 0.028, comparable to mod1's; beats mod1 public (1.270) |
 | mod6: mod2b + Price×covariate interactions (income, age, miles, night) | 1.2049 | -- | big gain from observed price-sensitivity heterogeneity; superseded by mod7 |
 | mod2b: factor-coded conditional logit + alt2/alt3 dummies | 1.219 | pending | submitted as `submission_mlogit_v2_factors_dummies.csv` |
@@ -94,23 +113,24 @@ all 20 attributes are worth keeping, with Price entering first and dominating
   the union of both versions' rules.
 
 ## Next steps / what to do in a new session
-1. **Submit mod8** (`submission_mlogit_v8_segment_interactions.csv`, val 1.1896)
-   to Kaggle -- current best. mod7 already submitted: public 1.230 (val 1.2024,
-   gap 0.028, beats mod1 public 1.270). If mod8's gap matches, expected public ~1.217.
-   Log mod8's public score in `submissions_log.csv` when available.
-2. DONE (mod6/mod7): added respondent covariates to the conditional logit as
-   interactions -- Price x (income,age,miles,night) and inside-good x (income,age,
-   miles,night,gender,urb,educ). Standardize with TRAINING mean/sd applied to
-   val/test (see the make_features() pattern used in the session). Covariate ideas
-   not yet tried: attribute x segment interactions (car-type-specific feature
-   valuation), or a light mixed logit (random Price only) layered on mod7.
-3. Once more models are tried, draft the actual competition report (Quarto,
-   max 8 pages, no executive summary/appendix) covering: best model +
-   alternatives, public-vs-private LB fit (private score only known after
-   Aug 1), and insights/limitations. Use the `report` skill.
-4. Remember: only 2 Kaggle submissions/day -- use local validation log loss to
-   choose what's worth submitting rather than testing everything on Kaggle.
+1. **Submit the ensemble** (`submission_ensemble_v9_mlogit_xgb.csv`, CV 1.1517) --
+   current best. Also worth submitting mod8 (`submission_mlogit_v8_segment_interactions.csv`)
+   and m8tr for public-LB calibration. mod7 already submitted: public 1.230 (val 1.2024,
+   gap 0.028). If the ~0.03 val-to-public gap holds, ensemble expected public ~1.18.
+   Log public scores in `submissions_log.csv` when available.
+2. DONE (bottom-up review 2026-07-25): added task-fatigue (In_task, P_task -- price
+   sensitivity rises over the 19 tasks) and region×/ppark× interactions to mod8; both
+   CV-confirmed. Built a 0.70/0.30 mod8(+task+region+ppark)/xgboost ensemble, weight
+   chosen by 5-fold CV on OOF preds. The final feature builder is `build_all(df,ctr,scl)`
+   in the session (segment + task + region + ppark interactions; scaler from TRAINING).
+3. **The report (`competition_report.qmd`) is now STALE** -- it features mod8 (1.1896)
+   as best. Update it to: (a) feature the ensemble as best (CV 1.1517), (b) add the
+   task-fatigue and region/ppark findings, (c) add the KEY insight that test respondents
+   are entirely new people (Case 1136–1398, zero overlap with train 1–1135) -- this
+   explains why mixed-logit random effects don't transfer and justifies the
+   observed-heterogeneity strategy; our respondent-level CV mirrors this correctly.
+4. Remember: only 2 Kaggle submissions/day -- use local CV log loss to choose what's
+   worth submitting rather than testing everything on Kaggle.
 5. If prompting a fresh session: ask me (the assistant) to read this file plus
-   `cleaning_log.md` and `submissions_log.csv` first, then say what you want
-   to try next (e.g. "add respondent covariates to mod2b", "submit mod2b",
-   "start drafting the report").
+   `cleaning_log.md` and `submissions_log.csv` first, then say what you want to try
+   next (e.g. "submit the ensemble", "update the report", "test attribute interactions").
