@@ -484,3 +484,61 @@ here yet. Her script also has a hardcoded `setwd("C:\\SUTD\\...")` that will not
 another machine. Her test-set predictions exist as a file regardless (submission not
 yet made) -- worth re-validating on `data_processed/train_val_split.rds` and fixing the
 path before trusting or submitting it.
+
+## 2026-07-26: Price as a saturated factor + choice-set context effects (new best)
+
+Two ideas that had never been tried despite being obvious in hindsight: (1) every one
+of the 19 attributes was dummy-coded specifically because there's no reason utility is
+linear in the level code -- but Price, the single dominant driver, was left as one
+linear slope the whole project; (2) respondents plausibly evaluate price partly
+*relative to the choice set in front of them*, not on an absolute scale, which nothing
+in the model could express.
+
+**1. Price as a 12-level factor.** Recoded Price from continuous to dummies for levels
+2-12 (reference = level 1). Levels 0 (opt-out) and 1 share the reference cell
+deliberately: Price=0 occurs only for the opt-out, and the 19-attribute block already
+encodes inside-vs-opt-out perfectly on its own (see the identification note below), so
+giving Price=0 its own dummy on top of that is redundant, not free information.
+Heterogeneity terms (Price x covariate/segment/task/region/ppark) stay linear in Price
+-- only the main effect is freed up.
+
+**Identification pitfall hit and fixed:** a full 0-12 factor (all 12 dummies, reference
+level 0) makes `mlogit`'s Hessian exactly singular. Diagnosed via `model.matrix()` +
+`qr()` rank (much faster than repeatedly re-fitting mlogit to guess): regressing the
+dropped column on all others gave a perfect fit whose coefficients revealed the cause --
+every inside alternative has **exactly 9 of its 19 attributes at a non-reference level**
+(a constant of this partial-profile conjoint design, confirmed by checking the
+frequency table), so `sum(attribute != 0 indicators) / 9` reproduces the "inside"
+indicator exactly, just like `sum(all 12 price dummies)` does. Two different column
+sets both exactly reconstructing "inside" is a rank-1 collinearity. Fixed by dropping
+one price level's dummy (using levels 2-12 only) -- any one of the ~30 implicated
+columns would have worked identically since it's a true structural redundancy, not
+information loss.
+
+**2. Choice-set context effects.** `is_cheapest` / `is_dearest`: 1 if this alternative
+has the lowest/highest price among the task's 3 inside alternatives (computed from
+`price_min`/`price_max` grouped by `chid`; ties simply both flag if they occur). Not
+collinear with the price level itself since the same nominal price can be cheapest in
+one task and dearest in another depending on what the other two alternatives cost.
+
+**Results.** On top of m8tr: 5-fold CV (seed 4821) **1.1516** vs m8tr's 1.15671 -- a
+real ~0.0051 gain, confirmed (not a single-split fluke; single-split was 1.165734 vs
+m8tr's 1.1696). This is a SINGLE conditional logit matching the entire mod8tr+xgboost
+ensemble (1.1517). Price coefficients are monotonic and convex (level2 -0.66 down to
+level12 -3.64) -- confirms every prior model's linear-Price assumption was leaving
+signal on the table. `is_cheapest` +0.215 (p<1e-11); `is_dearest` -0.076 (p=0.05,
+weaker signal).
+
+**Re-blended with xgboost:** same 0.70/0.30-style search (`R/cv_ensemble_v10.R`) gives
+a new optimum at **0.75 mlogit / 0.25 xgboost**, pooled OOF CV **1.14823** -- beats
+ensemble_v9 (1.1517) by ~0.0035. Submission file ready
+(`submission_ensemble_v10_pricefactor_context.csv`), not yet submitted.
+
+**Negative result, tested and rejected on top of this:** Price x {gender, urbanicity,
+education} (symmetric completion of the existing inside x {gender,urb,educ} terms) and
+a quadratic `P_task^2` fatigue term. Individually, `P_educ` and `P_task^2` both looked
+strongly significant (p<1e-8), but single-split validation got WORSE (1.1699 vs
+1.1657) with them added. Left out -- exactly the kind of significance-vs-validation
+disconnect this project has seen before (mod11's pruning), and not worth spending a
+5-fold CV run to confirm given the ensemble's CV-to-public gap is already growing with
+model complexity (0.028 on mod7 -> 0.052 on ensemble_v9).
