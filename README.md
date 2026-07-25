@@ -15,22 +15,35 @@ Each observation contains four alternative safety-feature bundles, with exactly 
 * **Kaggle competition:** https://www.kaggle.com/t/42a0b591922c450d99cb01ac7a662b66
 * **Programming language:** R only
 
+## Current status
+
+Best model so far: a 70/30 ensemble of a conditional logit (dummy-coded attributes +
+price/opt-out heterogeneity by covariates, car segment, task position, region, and
+parking situation) with an XGBoost multiclass model. CV log loss **1.1517**, public
+leaderboard **1.204** (submitted 2026-07-26). Full model history, findings, and current
+next steps live in [`AGENTS.md`](AGENTS.md) and [`cleaning_log.md`](cleaning_log.md) --
+read those first before starting new work. Every model tried (submitted or not) is
+tracked with its validation/public log loss in [`submissions_log.csv`](submissions_log.csv).
+
 ## Data
 
 The competition provides the following files:
 
 ```text
-data/
+csv files/
 ├── train.csv
 ├── test.csv
 └── sample_submission.csv
 ```
 
-* `train.csv`: 21,565 labelled observations
-* `test.csv`: 4,997 unlabelled observations
+* `train.csv`: 21,565 labelled observations, 1,135 respondents x 19 choice tasks
+* `test.csv`: 4,997 unlabelled observations, 263 respondents (**entirely disjoint** from
+  the training respondents -- see `cleaning_log.md`, this matters for validation design)
 * `sample_submission.csv`: Required submission format
 
-The competition data is not included in this repository. Team members should download the files from Kaggle and place them inside the local `data/` directory.
+The competition data is not included in this repository (`csv files/` is gitignored).
+Team members should download the files from Kaggle and place them inside a local
+`csv files/` directory at the repo root.
 
 ## Evaluation Metric
 
@@ -66,16 +79,20 @@ Predicted probabilities should sum to `1` across the four alternatives for every
 
 ```text
 .
-├── R/                  # Reusable R functions
-├── data/               # Competition data stored locally
-├── notebooks/          # EDA and modelling notebooks
-├── models/             # Saved model objects
-├── submissions/        # Generated Kaggle submissions
-├── figures/            # Plots and visualisations
-├── report/             # Final report files
+├── R/                       # Reusable R functions (log_loss.R, model scripts)
+├── notebooks/experiments/   # Individual exploratory notebooks (one per person)
+├── csv files/               # Competition data, local only (gitignored)
+├── data_processed/          # Cached derived objects e.g. the train/val split (gitignored)
+├── AGENTS.md                # Project memory: state, findings, next steps -- read first
+├── cleaning_log.md          # Narrative log of every data/modelling finding
+├── submissions_log.csv      # Every model tried: validation + public log loss
+├── model_experiments_log.csv# Imelda's per-notebook experiment tracker
+├── competition_report.qmd   # Source for the final report
+├── submission_*.csv         # Generated Kaggle submissions (root level)
+├── models/, figures/, report/, submissions/  # Placeholders for individual workflows
 ├── README.md
 ├── .gitignore
-└── DataComp2026.Rproj
+└── kagglecomp.Rproj
 ```
 
 ## Project Workflow
@@ -93,23 +110,29 @@ Predicted probabilities should sum to `1` across the four alternatives for every
 
 ## Notebooks
 
-| File                       | Description                           |
-| -------------------------- | ------------------------------------- |
-| `01_eda.Rmd`               | Exploratory data analysis             |
-| `02_baseline.Rmd`          | Initial benchmark model               |
-| `03_model_experiments.Rmd` | Alternative model experiments         |
-| `04_final_model.Rmd`       | Final model and submission generation |
+Individual exploratory work lives under `notebooks/experiments/<name>_*.Rmd`, one
+person at a time, so we don't step on each other's cells. The shared, validated
+pipeline (feature builders, final model specs) lives in `R/` and `competition_report.qmd`
+-- fold a working result from your own notebook into those once it's confirmed on the
+canonical respondent-level split (see below), and log it in `submissions_log.csv`.
 
 ## Submission Tracking
 
-Each submission should be recorded in a submission log.
+Every model anyone tries -- submitted to Kaggle or not -- is recorded in
+[`submissions_log.csv`](submissions_log.csv) with its validation log loss, public
+leaderboard score (if submitted), the gap between them, and a source citation for
+anything beyond class material. Check it before re-trying something; it's the single
+source of truth for what's already been tried and what worked.
 
-| Submission           | Model                       | Validation Log Loss | Public Log Loss | Notes                                    |
-| -------------------- | --------------------------- | ------------------: | --------------: | ---------------------------------------- |
-| `submission_001.csv` | Equal-probability benchmark |             1.38629 |             TBD | Probability of 0.25 for each alternative |
-| `submission_002.csv` | TBD                         |                 TBD |             TBD | TBD                                      |
+Teams may make a maximum of **two Kaggle submissions per day** -- use validation log
+loss to decide what's worth a submission slot rather than testing everything on Kaggle.
 
-Teams may make a maximum of **two Kaggle submissions per day**.
+**Validation must be respondent-level**, not row-level or task-level: each respondent
+answered 19 correlated tasks, and the real test set is 263 respondents who never appear
+in training. Split on `Case` (respondent id), not on individual rows or on `Task`
+position -- a `Task`-based split leaks a respondent's other tasks into both sides and
+will make your local score look better than it really is. The canonical split (seed
+7402, 80/20 by respondent) is what every logged number above should use.
 
 ## Leaderboard
 

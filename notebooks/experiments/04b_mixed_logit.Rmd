@@ -1,0 +1,135 @@
+---
+title: "04b - Mixed Logit (random coefficients)"
+author: "Team"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(mlogit)
+library(here)
+source(here("R", "log_loss.R"))
+```
+
+Mixed logit following the class notebook: coefficients treated as random
+(normal) across respondents, exploiting the panel (19 tasks/person). Same
+respondent-level split and log-loss scoring. Generates a submission and logs it.
+
+> Note: mixed logit is slower than MNL. Start with a few random coefficients
+> and a modest number of draws (`R`); raise `R` for the final fit.
+
+# Load & derive Choice
+
+```{r load}
+train <- read.csv(here("data", "train.csv"))
+test  <- read.csv(here("data", "test.csv"))
+
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+test$Choice  <- 1L
+```
+
+# Respondent-level split
+
+```{r split}
+set.seed(7402)
+cases     <- unique(train$Case)
+val_cases <- sample(cases, size = round(0.20 * length(cases)))
+
+train_fit <- subset(train, !(Case %in% val_cases))
+train_val <- subset(train,   Case %in% val_cases)
+```
+
+# Reshape — NOTE the list() idx form for panel/mixed logit
+
+For the mixed logit the class reads the index as a **list**:
+`idx = list(c("No","Case"))`. This is what lets `panel = TRUE` work.
+
+```{r dfidx}
+S_fit <- dfidx(train_fit, shape = "wide", choice = "Choice",
+               varying = c(4:83), sep = "", idx = list(c("No", "Case")))
+S_val <- dfidx(train_val, shape = "wide", choice = "Choice",
+               varying = c(4:83), sep = "", idx = list(c("No", "Case")))
+```
+
+# Fit mixed logit
+
+`rpar` marks coefficients as random normal (`"n"`). The class version makes ALL
+coefficients random; that's the most flexible but slowest. Start here with all
+random (matching class), reduce if it's too slow.
+
+```{r fit}
+attr_vars <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+               "PP","KA","SC","TS","NV","MA","LB","AF","HU","Price")
+rpar_all <- setNames(rep("n", length(attr_vars)), attr_vars)
+
+f_mix <- as.formula(paste("Choice ~", paste(attr_vars, collapse = "+"), "- 1"))
+
+M1 <- mlogit(f_mix, data = S_fit,
+             rpar = rpar_all, panel = TRUE, R = 50, halton = NA)
+summary(M1)
+```
+
+# Validation log loss
+
+```{r logloss}
+val_prob  <- predict(M1, newdata = S_val)
+val_truth <- train_val$Choice
+truth_mat <- matrix(0, length(val_truth), 4)
+truth_mat[cbind(seq_along(val_truth), val_truth)] <- 1
+
+ll_mix <- log_loss(truth_mat, val_prob)
+cat("Mixed logit validation log loss:", round(ll_mix, 5),
+    " (benchmark 1.38629)\n")
+```
+
+# Model comparison (class-style: log-likelihood & AIC)
+
+```{r compare}
+cat("Mixed logit log-likelihood:", round(as.numeric(logLik(M1)), 2), "\n")
+cat("Mixed logit AIC:", round(AIC(M1), 2), "\n")
+# A significant sd.* on a coefficient => preference heterogeneity for that
+# feature across respondents (a reportable insight).
+```
+
+# Generate submission
+
+```{r submission}
+S_all  <- dfidx(train, shape = "wide", choice = "Choice",
+                varying = c(4:83), sep = "", idx = list(c("No", "Case")))
+S_test <- dfidx(test,  shape = "wide", choice = "Choice",
+                varying = c(4:83), sep = "", idx = list(c("No", "Case")))
+
+M1_full   <- mlogit(f_mix, data = S_all,
+                    rpar = rpar_all, panel = TRUE, R = 50, halton = NA)
+test_prob <- predict(M1_full, newdata = S_test)
+
+sample_sub <- read.csv(here("data", "sample_submission.csv"))
+submission <- data.frame(No = test$No,
+                         Ch1 = test_prob[,1], Ch2 = test_prob[,2],
+                         Ch3 = test_prob[,3], Ch4 = test_prob[,4])
+stopifnot(all(names(submission) == names(sample_sub)),
+          all(submission$No == sample_sub$No), !anyNA(submission))
+
+if (!dir.exists(here("submissions"))) dir.create(here("submissions"))
+write.csv(submission, here("submissions", "submission_mixed.csv"), row.names = FALSE)
+cat("Wrote submissions/submission_mixed.csv\n")
+```
+
+# Log the submission
+
+```{r log}
+path <- here("submissions_log.csv")
+log  <- read.csv(path, stringsAsFactors = FALSE)
+new  <- data.frame(
+  date              = as.character(Sys.Date()),
+  model_name        = "mixed_logit_all_random",
+  description       = "Mixed logit: all 19 attributes + Price as random-normal coefficients, panel over respondents, R=50 draws",
+  source_citation   = "Class material (mlogit rpar/panel mixed logit)",
+  cv_logloss        = round(ll_mix, 6),
+  public_lb_logloss = NA, gap = NA,
+  notes             = "Class-structure mixed logit. Raise R for final fit. Significant sd.* => preference heterogeneity.",
+  stringsAsFactors  = FALSE
+)
+write.csv(rbind(log, new), path, row.names = FALSE)
+cat("Logged mixed_logit_all_random\n")
+```

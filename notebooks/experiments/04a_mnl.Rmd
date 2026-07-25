@@ -1,0 +1,112 @@
+---
+title: "04a - Multinomial (Conditional) Logit"
+author: "Team"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(mlogit)
+library(here)
+source(here("R", "log_loss.R"))   # log_loss(actual, pred): both n x 4 matrices
+```
+
+Multinomial (conditional) logit following the class structure, with a
+respondent-level split and log-loss scoring. Generates a submission and logs it.
+
+# Load & derive Choice
+
+```{r load}
+train <- read.csv(here("data", "train.csv"))
+test  <- read.csv(here("data", "test.csv"))
+
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])   # 1..4
+test$Choice  <- 1L                                             # placeholder for dfidx
+```
+
+# Respondent-level split
+
+```{r split}
+set.seed(7402)
+cases     <- unique(train$Case)
+val_cases <- sample(cases, size = round(0.20 * length(cases)))
+
+train_fit <- subset(train, !(Case %in% val_cases))
+train_val <- subset(train,   Case %in% val_cases)
+```
+
+# Reshape (dfidx, wide -> long)
+
+```{r dfidx}
+S_fit <- dfidx(train_fit, shape = "wide", choice = "Choice",
+               varying = c(4:83), sep = "", idx = c("No", "Case"))
+S_val <- dfidx(train_val, shape = "wide", choice = "Choice",
+               varying = c(4:83), sep = "", idx = c("No", "Case"))
+```
+
+# Fit MNL
+
+We include alternative-specific intercepts (they capture the opt-out's baseline
+pull and improved our log-loss vs the no-intercept `- 1` spec).
+
+```{r fit}
+attr_rhs <- "CC+GN+NS+BU+FA+LD+BZ+FC+FP+RP+PP+KA+SC+TS+NV+MA+LB+AF+HU+Price"
+f_mnl <- as.formula(paste("Choice ~", attr_rhs))   # intercepts kept
+
+M <- mlogit(f_mnl, data = S_fit)
+summary(M)
+```
+
+# Validation log loss
+
+```{r logloss}
+val_prob  <- predict(M, newdata = S_val)
+val_truth <- train_val$Choice
+truth_mat <- matrix(0, length(val_truth), 4)
+truth_mat[cbind(seq_along(val_truth), val_truth)] <- 1
+
+ll_mnl <- log_loss(truth_mat, val_prob)
+cat("MNL validation log loss:", round(ll_mnl, 5), " (benchmark 1.38629)\n")
+```
+
+# Generate submission
+
+```{r submission}
+S_all  <- dfidx(train, shape = "wide", choice = "Choice",
+                varying = c(4:83), sep = "", idx = c("No", "Case"))
+S_test <- dfidx(test,  shape = "wide", choice = "Choice",
+                varying = c(4:83), sep = "", idx = c("No", "Case"))
+
+M_full    <- mlogit(f_mnl, data = S_all)
+test_prob <- predict(M_full, newdata = S_test)
+
+sample_sub <- read.csv(here("data", "sample_submission.csv"))
+submission <- data.frame(No = test$No,
+                         Ch1 = test_prob[,1], Ch2 = test_prob[,2],
+                         Ch3 = test_prob[,3], Ch4 = test_prob[,4])
+stopifnot(all(names(submission) == names(sample_sub)),
+          all(submission$No == sample_sub$No), !anyNA(submission))
+
+if (!dir.exists(here("submissions"))) dir.create(here("submissions"))
+write.csv(submission, here("submissions", "submission_mnl.csv"), row.names = FALSE)
+cat("Wrote submissions/submission_mnl.csv\n")
+```
+
+# Log the submission
+
+```{r log}
+path <- here("submissions_log.csv")
+log  <- read.csv(path, stringsAsFactors = FALSE)
+new  <- data.frame(
+  date              = as.character(Sys.Date()),
+  model_name        = "mnl_conditional_logit",
+  description       = "Multinomial (conditional) logit with ASCs; all 19 attributes + Price, generic linear coefficients",
+  source_citation   = "Class material (mlogit / dfidx)",
+  cv_logloss        = round(ll_mnl, 6),
+  public_lb_logloss = NA, gap = NA,
+  notes             = "Class-structure MNL, respondent-level split, log-loss scored.",
+  stringsAsFactors  = FALSE
+)
+write.csv(rbind(log, new), path, row.names = FALSE)
+cat("Logged mnl_conditional_logit\n")
+```
