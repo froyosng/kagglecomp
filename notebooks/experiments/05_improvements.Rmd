@@ -1,0 +1,240 @@
+---
+title: "05 - Improvements: what each change does to log-loss"
+author: "Team"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(mlogit)
+library(here)
+source(here("R", "log_loss.R"))
+```
+
+Every model is scored on the SAME respondent-level split (seed 7402), so the
+log-losses are comparable. Each section states the change and its effect; a
+summary table and an experiments log are written at the end.
+
+Note: attribute *factoring* is not included here — it fits the long-format
+workflow, not the wide/`dfidx` reshape used in class. From our earlier
+long-format run it scored ~1.2263; cite that separately if needed.
+
+# Setup (shared split, helper)
+
+```{r prep}
+train <- read.csv(here("data", "train.csv"))
+test  <- read.csv(here("data", "test.csv"))
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+test$Choice  <- 1L
+
+set.seed(7402)
+cases     <- unique(train$Case)
+val_cases <- sample(cases, size = round(0.20 * length(cases)))
+train_fit <- subset(train, !(Case %in% val_cases))
+train_val <- subset(train,   Case %in% val_cases)
+
+val_truth <- train_val$Choice
+truth_mat <- matrix(0, length(val_truth), 4)
+truth_mat[cbind(seq_along(val_truth), val_truth)] <- 1
+
+attrs <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+           "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+
+mk <- function(df, panel = FALSE) {
+  idx <- if (panel) list(c("No","Case")) else c("No","Case")
+  dfidx(df, shape = "wide", choice = "Choice",
+        varying = c(4:83), sep = "", idx = idx)
+}
+
+results  <- list()
+val_pred <- list()
+```
+
+# 0. MNL baseline (linear attrs + ASCs)
+
+**Change:** none — reference model.
+
+```{r m0}
+f0 <- as.formula(paste("Choice ~", paste(c(attrs,"Price"), collapse="+")))
+M0 <- mlogit(f0, data = mk(train_fit))
+p0 <- predict(M0, newdata = mk(train_val))
+val_pred[["mnl"]] <- p0
+results[["0_MNL_baseline"]] <- list(ll = log_loss(truth_mat, p0),
+                                    change = "reference: linear attrs + ASCs")
+cat("0 MNL baseline:", round(results[["0_MNL_baseline"]]$ll,5), "\n")
+```
+
+# 1. Price non-linearity (add Price^2)
+
+**Change:** allow a curved price effect (EDA showed choice rate falling steeply
+then flattening). Adds one term.
+
+```{r m1}
+f1 <- as.formula(paste("Choice ~", paste(c(attrs,"Price"), collapse="+"),
+                       "+ I(Price^2)"))
+M1 <- mlogit(f1, data = mk(train_fit))
+p1 <- predict(M1, newdata = mk(train_val))
+val_pred[["price2"]] <- p1
+results[["1_price_squared"]] <- list(ll = log_loss(truth_mat, p1),
+                                     change = "added I(Price^2) curvature")
+cat("1 price^2:", round(results[["1_price_squared"]]$ll,5), "\n")
+```
+
+# 2. Income x Price interaction
+
+**Change:** price sensitivity depends on income (richer respondents less
+price-sensitive). One interaction term with a clear real-world story.
+
+```{r m2}
+tf <- train_fit; tv <- train_val
+for (j in 1:4) {
+  tf[[paste0("PxI", j)]] <- tf[[paste0("Price", j)]] * tf$incomea
+  tv[[paste0("PxI", j)]] <- tv[[paste0("Price", j)]] * tv$incomea
+}
+S2f <- dfidx(tf, shape="wide", choice="Choice", sep="",
+             varying = c(4:83, which(names(tf) %in% paste0("PxI",1:4))),
+             idx = c("No","Case"))
+S2v <- dfidx(tv, shape="wide", choice="Choice", sep="",
+             varying = c(4:83, which(names(tv) %in% paste0("PxI",1:4))),
+             idx = c("No","Case"))
+f2  <- as.formula(paste("Choice ~", paste(c(attrs,"Price","PxI"), collapse="+")))
+M2  <- mlogit(f2, data = S2f)
+p2  <- predict(M2, newdata = S2v)
+val_pred[["income_price"]] <- p2
+results[["2_income_x_price"]] <- list(ll = log_loss(truth_mat, p2),
+                                      change = "Price interacts with income")
+cat("2 income x price:", round(results[["2_income_x_price"]]$ll,5), "\n")
+```
+
+# 3. Nested logit (real bundles vs opt-out)
+
+**Change:** treat the 3 real bundles as a nest separate from the opt-out —
+"buy something vs buy nothing" as a distinct decision. More realistic
+substitution than plain MNL.
+
+```{r m3}
+M3 <- tryCatch(
+  mlogit(f0, data = mk(train_fit),
+         nests = list(buy = c("1","2","3"), noBuy = c("4")),
+         un.nest.el = TRUE),
+  error = function(e) { message("Nested failed: ", conditionMessage(e)); NULL })
+if (!is.null(M3)) {
+  p3 <- predict(M3, newdata = mk(train_val))
+  val_pred[["nested"]] <- p3
+  results[["3_nested_logit"]] <- list(ll = log_loss(truth_mat, p3),
+                                      change = "nest: 3 real bundles vs opt-out")
+} else results[["3_nested_logit"]] <- list(ll = NA, change = "nested (failed)")
+cat("3 nested:", round(results[["3_nested_logit"]]$ll,5), "\n")
+```
+
+# 4. Mixed logit (random Price)
+
+**Change:** price coefficient varies across respondents (panel). Captures
+heterogeneity fixed models can't.
+
+```{r m4}
+M4 <- tryCatch(
+  mlogit(as.formula(paste("Choice ~", paste(c(attrs,"Price"),collapse="+"), "- 1")),
+         data = mk(train_fit, panel = TRUE),
+         rpar = c(Price = "n"), panel = TRUE, R = 50, halton = NA),
+  error = function(e) { message("Mixed failed: ", conditionMessage(e)); NULL })
+if (!is.null(M4)) {
+  p4 <- predict(M4, newdata = mk(train_val, panel = TRUE))
+  val_pred[["mixed"]] <- p4
+  results[["4_mixed_logit"]] <- list(ll = log_loss(truth_mat, p4),
+                                     change = "random Price coefficient (panel)")
+} else results[["4_mixed_logit"]] <- list(ll = NA, change = "mixed (failed)")
+cat("4 mixed:", round(results[["4_mixed_logit"]]$ll,5), "\n")
+```
+
+# 5. Ensemble (average the models)
+
+**Change:** average predicted probabilities across models. Because models make
+different errors, the average is often better-calibrated than any single one.
+
+```{r m5}
+pick <- intersect(c("mnl","price2","income_price","mixed"), names(val_pred))
+ens  <- Reduce(`+`, val_pred[pick]) / length(pick)
+ens  <- ens / rowSums(ens)
+results[["5_ensemble"]] <- list(ll = log_loss(truth_mat, ens),
+                                change = paste("avg of:", paste(pick, collapse=", ")))
+cat("5 ensemble:", round(results[["5_ensemble"]]$ll,5), "\n")
+```
+
+# Summary: change vs log-loss
+
+```{r summary}
+summary_tbl <- data.frame(
+  model      = names(results),
+  change     = sapply(results, function(x) x$change),
+  cv_logloss = round(sapply(results, function(x) x$ll), 5),
+  row.names  = NULL
+)
+summary_tbl <- summary_tbl[order(summary_tbl$cv_logloss), ]
+print(summary_tbl)
+cat("\nbest:", round(min(summary_tbl$cv_logloss, na.rm=TRUE), 5), "\n")
+```
+
+# Log ALL experiments (monitoring record, separate from submissions_log)
+
+```{r log-experiments}
+exp_path <- here("model_experiments_log.csv")
+run_tbl  <- summary_tbl
+run_tbl$date <- as.character(Sys.Date())
+run_tbl <- run_tbl[, c("date","model","change","cv_logloss")]
+if (file.exists(exp_path)) {
+  prev <- read.csv(exp_path, stringsAsFactors = FALSE)
+  write.csv(rbind(prev, run_tbl), exp_path, row.names = FALSE)
+} else write.csv(run_tbl, exp_path, row.names = FALSE)
+cat("Appended", nrow(run_tbl), "experiments to model_experiments_log.csv\n")
+```
+
+# Generate + log a submission for the winning model
+
+Pick the winner from the summary table. Default below = the ensemble (usually
+the best). Only upload if it beats your current best on the public board.
+
+```{r submit-winner}
+# Refit each component on ALL training data, average test predictions.
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+
+# MNL on full data
+Mf_mnl  <- mlogit(f0, data = mk(train))
+tp_mnl  <- predict(Mf_mnl, newdata = mk(test))
+
+# Price^2 on full data
+Mf_p2   <- mlogit(f1, data = mk(train))
+tp_p2   <- predict(Mf_p2, newdata = mk(test))
+
+# Mixed on full data
+Mf_mix  <- tryCatch(
+  mlogit(as.formula(paste("Choice ~", paste(c(attrs,"Price"),collapse="+"), "- 1")),
+         data = mk(train, panel = TRUE),
+         rpar = c(Price = "n"), panel = TRUE, R = 50, halton = NA),
+  error = function(e) NULL)
+tp_mix  <- if (!is.null(Mf_mix)) predict(Mf_mix, newdata = mk(test, panel = TRUE)) else NULL
+
+# ensemble available components
+comp <- list(tp_mnl, tp_p2, tp_mix)
+comp <- comp[!sapply(comp, is.null)]
+tp   <- Reduce(`+`, comp) / length(comp)
+tp   <- tp / rowSums(tp)
+
+sample_sub <- read.csv(here("data", "sample_submission.csv"))
+submission <- data.frame(No = test$No, Ch1=tp[,1], Ch2=tp[,2], Ch3=tp[,3], Ch4=tp[,4])
+stopifnot(all(names(submission)==names(sample_sub)),
+          all(submission$No==sample_sub$No), !anyNA(submission))
+if (!dir.exists(here("submissions"))) dir.create(here("submissions"))
+write.csv(submission, here("submissions","submission_ensemble.csv"), row.names = FALSE)
+
+path <- here("submissions_log.csv"); log <- read.csv(path, stringsAsFactors = FALSE)
+new  <- data.frame(date=as.character(Sys.Date()), model_name="ensemble_mnl_price2_mixed",
+  description="Average of MNL, MNL+Price^2, and mixed-logit(random Price) probabilities",
+  source_citation="Class material (mlogit); simple probability averaging",
+  cv_logloss=round(results[["5_ensemble"]]$ll,6),
+  public_lb_logloss=NA, gap=NA,
+  notes="Ensemble of choice models. See 05 summary for component scores.",
+  stringsAsFactors=FALSE)
+write.csv(rbind(log, new), path, row.names = FALSE)
+cat("Wrote + logged submission_ensemble.csv\n")
+```
