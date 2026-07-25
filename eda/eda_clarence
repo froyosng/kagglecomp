@@ -2,8 +2,8 @@ setwd("C:\\SUTD\\40.016 TAE - The Analytics Edge\\000 - COMPETITION\\eda")
 library(ggplot2)
 library(GGally)
 
-df_train <- read.csv("train2024.csv")
-df_test <- read.csv("test2024.csv")
+df_train <- read.csv("train.csv")
+df_test <- read.csv("test.csv")
 df_train$Choice <- ifelse(df_train$Ch1 == 1, 1, ifelse(df_train$Ch2 == 1, 2, ifelse(df_train$Ch3 == 1, 3, 4)))
 
 # SUMMARY
