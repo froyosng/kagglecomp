@@ -1,0 +1,13 @@
+"date","model","change","cv_logloss"
+"2026-07-25","6_ensemble","avg of: mnl, price2, mixed",1.22777
+"2026-07-25","1_price_squared","added I(Price^2) curvature",1.23263
+"2026-07-25","4_nested_logit","nest: 3 real bundles vs opt-out",1.23469
+"2026-07-25","3_income_x_price","Price interacts with income",1.23495
+"2026-07-25","0_MNL_baseline","reference: linear attrs + ASCs",1.2357
+"2026-07-25","5_mixed_logit","random Price coefficient (panel)",1.27954
+"2026-07-25","5_ensemble","avg of: mnl, price2, income_price, mixed",1.22694
+"2026-07-25","1_price_squared","added I(Price^2) curvature",1.23263
+"2026-07-25","3_nested_logit","nest: 3 real bundles vs opt-out",1.23469
+"2026-07-25","2_income_x_price","Price interacts with income",1.23495
+"2026-07-25","0_MNL_baseline","reference: linear attrs + ASCs",1.2357
+"2026-07-25","4_mixed_logit","random Price coefficient (panel)",1.27954
