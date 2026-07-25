@@ -33,7 +33,7 @@ models/*
 !models/.gitkeep
 
 # Kaggle submission files
-submissions/*.csv
+
 !submissions/.gitkeep
 !submissions/submission_log.csv
 
