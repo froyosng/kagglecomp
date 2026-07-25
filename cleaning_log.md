@@ -542,3 +542,18 @@ strongly significant (p<1e-8), but single-split validation got WORSE (1.1699 vs
 disconnect this project has seen before (mod11's pruning), and not worth spending a
 5-fold CV run to confirm given the ensemble's CV-to-public gap is already growing with
 model complexity (0.028 on mod7 -> 0.052 on ensemble_v9).
+
+**Negative result: choice-structured xgboost.** Hypothesized that xgboost's wide-format
+4-class objective (`multi:softprob`) has to infer the "one winner per 4-row task"
+structure entirely from scratch, and that refitting it as binary chosen/not-chosen on
+long-format rows (one row per alternative) with predictions renormalized to sum to 1
+within each task would give it that structure directly and close some of the gap to
+the logit. Tested (`R/test_xgb_binary_choice.R`, same eta/depth/subsample as the
+existing xgboost, nrounds=200 picked from the validation-logloss curve): validation
+log loss 1.2053, statistically indistinguishable from (marginally worse than) the
+original wide-format xgboost's 1.2042. Simple post-hoc renormalization apparently does
+not meaningfully teach the model the within-task comparison the way a proper
+listwise/ranking objective might -- xgboost's native multiclass softmax was already
+capturing about as much of that structure as this surrogate does. Not pursued further
+(a real ranking-loss reformulation would take considerably more effort for an unproven
+payoff, and xgboost is already the minority partner in the ensemble).
