@@ -412,3 +412,75 @@ Reproducibility: the unified feature builder is `build_all(df, ctr, scl)` (segme
 task + region + ppark interactions, scaler from training). The CV loop refits all
 mlogit specs and xgboost per fold and stores OOF matrices (OOF_m8, OOF_m8t, OOF_m8tr,
 OOF_xgb) for the weight search.
+
+## 2026-07-26: First public-LB results past mod7, and teammates' independent models
+
+**ensemble_v9 (mod8+task+region/ppark blended with xgboost) submitted: public 1.204.**
+Current best score the team has on the board by a wide margin (previous best was
+mod7's 1.230). Gap vs. CV (1.204 - 1.1517 = 0.052) is noticeably larger than mod1's
+(0.034) or mod7's (0.028) -- expected, since this model has far more surface area
+(segment/task/region/ppark interactions plus a CV-tuned xgboost component) than the
+earlier ones, so more room to fit CV-specific noise. Still a clear net win even with
+the larger gap; worth flagging in the report's public-vs-private discussion rather than
+assuming the gap stays constant as model complexity grows.
+
+**Teammate Imelda Lee's independent model line** (branch `imelda`, `notebooks/
+experiments/04a_mnl.Rmd`, `04b_mixed_logit.Rmd`, `05_improvements.Rmd`). She built her
+own pipeline from wide-format `dfidx` reshaping (vs. this project's long-format
+`pivot_longer` approach) but used the **same respondent-level split, seed 7402**, so
+her numbers are directly comparable to ours. Useful cross-check: her plain MNL baseline
+(ASCs + linear attrs + Price) scored **1.235696** -- identical to mod1's validation log
+loss to six decimal places, confirming both independent implementations of the same
+model spec agree exactly.
+
+From her `05_improvements.Rmd` component tests (all vs. her 1.2357 baseline):
+- `I(Price^2)` curvature: 1.23263 -- small gain, consistent with this project's own
+  finding that a linear-in-level Price term is mis-specified (though we address it via
+  full dummy-coding rather than a quadratic).
+- Price x income interaction: 1.23495 -- essentially no gain on top of the linear
+  baseline (contrast with this project's mod6: the same idea, income-price
+  interaction, gave a real gain of ~0.03 here, but only once attributes were already
+  dummy-coded first -- suggests the interaction needs a properly-specified fixed part
+  under it to show up).
+- Nested logit (3 real bundles nested against the opt-out): 1.23469 -- no improvement.
+  Consistent with our own finding that the opt-out is best handled via a fixed
+  zero-utility reference cell rather than nesting structure.
+- Mixed logit, random Price only (linear attrs, not dummy-coded): 1.27954 -- clearly
+  WORSE than her baseline. Differs from this project's mod10 (random Price added on
+  top of the fully-featured mod8), which gave a negligible ~0.0003 *gain* -- the
+  difference is that injecting simulation noise on top of an under-specified linear
+  fixed part hurts, whereas adding it on top of a well-specified one (dummy-coded +
+  covariate/segment interactions) has nothing left to explain.
+- `mlogit_v3_combined` (her best, self-reported): 1.22028 -- factor-coded selective
+  attributes (NS, BU, FP, SC, MA, LB) + covariates + random Price + Price x income.
+  Source code for this specific run was never committed (it lived in a notebook she
+  deleted, `03_model_experiments.Rmd`, which turned out on inspection to be an empty
+  scaffold template -- the actual combined-model code was run locally and never saved),
+  so it is not independently reproducible from her branch history; citing her reported
+  number as-is.
+- Ensemble of MNL + Price^2 + mixed(random Price), refit on full data: submitted to
+  Kaggle 2026-07-26, **public 1.263**. CV 1.22777 (note: her own submissions_log.csv
+  logs 1.22694 for this row, but that figure is actually a *different*, 4-component
+  ensemble that includes a Price x income model which was never part of the 3-component
+  refit that actually produced the submitted file -- a mismatch from rerunning notebook
+  cells out of order. 1.22777 is the correct CV for the model that generated the
+  submission). Gap ~0.035, unremarkable, same order as mod1/mod7.
+
+None of Imelda's models beat mod2b (1.2186) let alone the team's later models, but the
+exact match on the MNL baseline is a valuable independent correctness check on the
+shared modeling approach, and the negative results (income-price, nesting, naive mixed
+logit not helping on an under-specified base) corroborate findings this project reached
+via a different route.
+
+**Teammate Clarence Elvareta's xgboost attempt** (branch `clarence`, merged to `main`
+via PR #1, not yet folded into this branch). Flagged as **not yet trustworthy**: her
+validation split is `Task <= 12` (train) vs. `Task > 12` (test), i.e. split by task
+number rather than by respondent -- the same respondent's tasks appear on both sides,
+which is exactly the leakage this project's own data audit identified and designed
+around (test respondents in the real competition are 263 entirely new people, never
+seen in train). No log-loss number from her script was ever saved anywhere reproducible
+(only printed to console via xgboost's training watchlist), so there is nothing to log
+here yet. Her script also has a hardcoded `setwd("C:\\SUTD\\...")` that will not run on
+another machine. Her test-set predictions exist as a file regardless (submission not
+yet made) -- worth re-validating on `data_processed/train_val_split.rds` and fixing the
+path before trusting or submitting it.
