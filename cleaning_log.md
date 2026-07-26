@@ -629,3 +629,43 @@ price-gap ~0.005, stacking ~0.000), consistent with approaching the practical fl
 for this kind of repeated stated-preference conjoint survey, where genuine
 respondent-level inconsistency/fatigue/satisficing is not explained by any observable
 -- this is worth citing directly in the report's limitations section.
+
+## 2026-07-26: Error/calibration diagnostic -- is there more legitimate signal left?
+
+After the price-factor/context/price-gap gains and two negative results (stacking,
+binned covariates beyond age), ran a diagnostic on the ensemble's OOF predictions
+(`R/error_analysis.R`, `R/calibration_check.R`) to check whether the remaining error
+looks like fixable, generalizable signal or genuine irreducible noise.
+
+**Reliability/calibration is excellent.** Binning every predicted probability (across
+all 4 alternatives x all tasks) against whether that alternative was actually chosen:
+predicted and actual match within 1-2 percentage points across the entire 0-0.8 range
+(e.g. predicted ~0.45 -> actual ~0.46; predicted ~0.64 -> actual ~0.63), only drifting
+at the very top of the range where sample sizes are tiny (n<250). When the model says
+"60% chance," it is right about 60% of the time.
+
+**"Confident misses" are the expected flip side of calibrated confidence, not
+miscalibration.** 49.5% of tasks are argmax-misses; among those, 36.3% have a gap
+>0.30 between the top pick's probability and the true alternative's probability. This
+sounds alarming in isolation, but a model that is genuinely 60% confident *should* be
+wrong 40% of the time, and those misses will show large gaps precisely because the
+model wasn't hedging on a close second choice. The calibration check confirms this is
+exactly what's happening, not a sign of a fixable bias.
+
+**No identifiable subgroup drives the misses.** Confident-miss rate (gap>0.30) is flat
+across every slice checked: true class (0.154-0.208), segment (0.154-0.201), task
+position bucket (0.171-0.195), region (0.175-0.182). If a generalizable pattern were
+being missed, some slice should stand out; none does.
+
+**Log loss is not concentrated in a few catastrophic failures.** The worst 10% of
+tasks (by their own log-loss contribution) account for 21.4% of total log loss, worst
+30% for 50.4% -- broad, roughly proportional spread, not a small number of badly-wrong
+predictions that a targeted fix could clean up.
+
+**Conclusion:** combined with mod4's training-log-likelihood ceiling (~0.95, achieved
+only via non-transferable respondent memorization -- see above) and xgboost's failure
+to out-predict the hand-built logit despite having the same raw covariates and full
+flexibility to find missed interactions, this is a reasonably strong, multi-angle case
+that the ensemble (CV 1.145) is close to the practical floor for this dataset using
+legitimate, generalizable modeling. Worth citing directly in the report's
+insights/limitations section as evidence-based, not just an assertion.
