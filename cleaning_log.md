@@ -601,3 +601,31 @@ stronger logit: optimum shifts to 0.80 logit / 0.20 xgboost, pooled OOF CV
 
 Model progression this session (5-fold CV, seed 4821): m8tr 1.15671 -> +price-factor
 +context 1.1516 -> +price-gap 1.147021 (logit alone) -> ensemble 1.145094.
+
+**Negative result: proper stacking instead of a fixed blend weight.** Replaced the
+single arithmetic blend weight with a real stacking model -- a conditional logit
+(respects the true 4-way softmax likelihood, unlike a naive per-row binary GLM) using
+log(p_mlogit) and log(p_xgb) as covariates, i.e. log-linear ("geometric") pooling
+instead of linear pooling, with one more free parameter. Nested 5-fold CV (meta-model
+refit on 4 folds' OOF predictions, evaluated on the held-out 5th): 1.146126, marginally
+WORSE than the simple fixed blend (1.145064 at w=0.82, same OOF data). The extra
+flexibility didn't help because there's really only one meaningful degree of freedom
+in a two-model ensemble where one model (xgboost) gets a small minority weight anyway
+-- the simple weighted average already finds it. Kept the simple blend as the
+submission of record.
+
+**On whether log loss can be pushed drastically lower (e.g. into the 1.0x range):**
+almost certainly not through further legitimate feature engineering on this dataset.
+mod4 (fully-random mixed logit, the most flexible/overfit model tried, with 20
+respondent-specific random coefficients) achieved a training log-likelihood of -16449
+-- converting to log loss puts even that theoretical ceiling (best possible fit ON
+ALREADY-SEEN respondents, with unlimited respondent-specific flexibility) at roughly
+0.76-0.95, and none of that respondent-specific flexibility transfers to the actual
+test respondents (263 entirely new people). The achievable log loss using only what
+generalizes (observed heterogeneity -- exactly what this project has spent all its
+effort on) necessarily sits above that floor. Today's gains have followed a classic
+diminishing-returns curve (mod6->mod7 ~0.03, segment ~0.013, price-factor ~0.005,
+price-gap ~0.005, stacking ~0.000), consistent with approaching the practical floor
+for this kind of repeated stated-preference conjoint survey, where genuine
+respondent-level inconsistency/fatigue/satisficing is not explained by any observable
+-- this is worth citing directly in the report's limitations section.
