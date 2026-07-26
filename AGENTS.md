@@ -1,136 +1,283 @@
-# Analytics Edge Data Competition 2026 -- Project Memory
+# Analytics Edge Data Competition 2026 -- Project Memory / State Summary
 
-## Competition overview
+*This file doubles as (a) project memory for AI coding assistants working in this
+repo, and (b) a self-contained brief you can paste into another LLM (GPT, Claude,
+etc.) to get a second opinion on what might be missing. Everything needed to
+understand the project is inline below -- no need to read other files first.*
+
+## Competition setup
 - Kaggle competition: predict which of 4 car safety-feature bundles a respondent
   chooses (discrete choice / conjoint task). Alternative 4 is always a constant
   "opt-out"/no-purchase option (all attributes and price = 0).
 - Scored by multi-class log loss. Benchmark (predict 1/4 for every alternative)
   scores 1.38629.
 - Dates: competition ends 1 Aug 2026 (12:00 SGT); report due 10 Aug 2026.
-- Max 2 Kaggle submissions/day. R only, but any package (and AI assist) allowed,
-  as long as sources are cited in the report for non-class methods.
+- Max 2 Kaggle submissions/day, shared across the whole team (one Kaggle account).
+  R only for submissions, but any package (and AI assist) allowed, as long as
+  sources are cited in the report for non-class methods.
 - Report requirements: max 8 pages, NO executive summary, NO appendix. Must cover
   (i) best model on public LB + brief discussion of alternatives tried,
   (ii) public vs. private leaderboard fit discussion,
   (iii) insights + limitations.
 - Grading: 7 pts private LB, 8 pts public LB (>= benchmark gets partial credit
   on both), 15 pts report.
+- Public leaderboard is ~70% of the test set (~3,500 of 4,997 rows) per the
+  competition's own README description; private (final grading) leaderboard is
+  the other ~30%, revealed only after the competition closes.
 
-## Data files (in `csv files/`, gitignored -- not in repo)
+## Data
 - `train.csv`: 21,565 obs, 113 vars. 1,135 respondents (`Case`), each completed
-  exactly 19 choice tasks (`Task`). Columns: attribute codes (CC, GN, NS, BU, FA,
+  exactly 19 choice tasks (`Task`). Columns: 19 attribute codes (CC, GN, NS, BU, FA,
   LD, BZ, FC, FP, RP, PP, KA, SC, TS, NV, MA, LB, AF, HU) + Price, each suffixed
-  1-4 for the 4 alternatives. Outcome: Ch1-Ch4 (one is 1, rest 0 per row).
-  Respondent covariates: segment, year, miles, night, ppark, gender, age, educ,
-  region, Urb, income -- each has a raw text version, an integer `*ind` version
-  (clean 1:1 recode of the raw version, verified), and some also have a `*a`
-  version (finer-grained numeric estimate *within* the `*ind` bin, NOT a
-  redundant duplicate -- e.g. milesa holds actual values like 60/80/100 within
-  the "51 To 100 Miles" bin).
-- `test.csv`: 4,997 obs, same schema but Ch1-Ch4 are NA (the targets to predict).
-- `sample_submission.csv`: format is `No, Ch1, Ch2, Ch3, Ch4` with `No` = test
-  row id (21566-26562).
+  1-4 for the 4 alternatives (integer level codes, different max per attribute,
+  e.g. CC 0-3, NS 0-5, BU 0-6, Price 1-12 for alts 1-3 / 0 for the opt-out).
+  Outcome: Ch1-Ch4 (one is 1, rest 0 per row). Respondent covariates: segment,
+  year, miles, night, ppark, gender, age, educ, region, Urb, income -- each has a
+  raw text version, an integer `*ind` version (clean 1:1 recode), and some also a
+  `*a` version (finer-grained numeric estimate *within* the `*ind` bin -- NOT a
+  redundant duplicate, e.g. `milesa` holds actual values like 60/80/100 within the
+  "51-100 miles" bin; genuinely richer information than `*ind`).
+- `test.csv`: 4,997 obs, same schema, Ch1-Ch4 are NA (the targets to predict).
+  **Test respondents (Case 1136-1398) are entirely disjoint from train (Case
+  1-1135) -- zero overlap.** This is the single most important structural fact
+  in the whole project: it means respondent-specific personalization (random
+  effects, mixed logit, memorized individual coefficients) CANNOT transfer to
+  test, no matter how well it fits training data. Only OBSERVED heterogeneity
+  (covariates/segment/task/region interacted with attributes) generalizes. This
+  is why every mixed-logit attempt underperformed the fixed-effects models with
+  the same observed-heterogeneity terms, and why respondent-level (not row-level,
+  not task-level) train/val splitting is mandatory for any honest local score.
+- `sample_submission.csv`: format `No, Ch1, Ch2, Ch3, Ch4`, `No` = test row id
+  (21566-26562).
+- No missing values or duplicate rows in train. Opt-out chosen 30.2% of the time
+  overall; opt-out share rises from ~24% (Task 1) to ~34% (Tasks 15-19) --
+  survey-fatigue effect, `Task` position is a usable transferable predictor.
 
-## Data quality findings (see `cleaning_log.md` for full detail)
-- **Test respondents are DISJOINT from train**: train is `Case` 1–1135, test is
-  1136–1398 (263 new respondents × 19 tasks = 4,997 rows), zero overlap. Consequence:
-  we can never personalize to a specific test respondent, so respondent-specific random
-  effects (mixed logit) cannot transfer -- only OBSERVED heterogeneity (covariate/segment
-  interactions) generalizes. This is why the mixed-logit models never beat the fixed
-  observed-heterogeneity models, and why the respondent-level train/val split & CV are
-  the right validation design (they mimic "predict for unseen respondents").
-- Survey-fatigue effect: opt-out share rises from ~24% (Task 1) to ~34% (Tasks 15–19);
-  `Task` position is a usable, transferable predictor (test respondents also did 19 tasks).
-- No missing values or duplicate rows in train.
-- Alternative 4 (opt-out): all attributes/price = 0 always; chosen 30.2% of the
-  time overall. The all-reference-level attribute profile NEVER occurs among
-  alternatives 1-3 (verified) -- this matters for modeling (see below).
-- Attribute levels are integer codes with different max per attribute (e.g. CC
-  0-3, NS 0-5, BU 0-6, Price 0/1-12). Higher = "more advanced" per the codebook
-  (see automobiles/oscars-style course notebooks for analogous datasets/vars).
+## Key technical/identification findings
+1. **ASC identification conflict.** Dummy-coding attribute levels while keeping
+   alternative-specific intercepts (ASCs) causes a singular Hessian in `mlogit`,
+   because alt 4's all-reference-level profile never co-occurs with alts 1-3, so
+   ASC4 is unidentifiable once attributes are factor-coded. Fix: drop ASCs
+   entirely (alt 4's utility fixed at 0 by construction) or add dummies only for
+   alts 2-3.
+2. **Price-as-factor collinearity (found 2026-07-26).** Turning Price from a
+   continuous slope into a full 0-12 level factor makes the Hessian exactly
+   singular again, for a different, non-obvious reason: every inside alternative
+   has **exactly 9 of its 19 attributes at a non-reference level** (a constant of
+   this partial-profile conjoint design -- confirmed via frequency tables), so
+   `sum(19 attribute-active indicators)/9` reconstructs the "inside" indicator
+   exactly, the same way `sum(all 12 price dummies)` does. Two different column
+   sets both exactly reproducing "inside" is a rank-1 collinearity. Diagnosed via
+   `model.matrix()` + `qr()` rank / regressing the dropped column on the rest
+   (fast, avoids repeatedly re-fitting mlogit to guess) rather than trial and
+   error. Fix: drop one price level's dummy (levels 2-12, reference = level 1;
+   opt-out's Price=0 shares that reference cell, which is fine since "inside vs
+   opt-out" is already fully captured by the attribute block).
+3. For `mlogit` panel/mixed models, use nested dfidx syntax:
+   `dfidx(data, idx = list(c("chid","Case"), "alt"), choice = "chosen")`.
+4. When aligning `predict()` output back to original rows, always match by the
+   `chid` rownames `predict()` returns -- never assume row order is preserved.
+   This silently mis-aligns and inflates log loss if skipped.
 
-## Key technical finding: ASC identification conflict
-Dummy-coding (factor) the attribute levels while keeping alternative-specific
-intercepts (ASCs) causes a **singular Hessian error** in `mlogit`. Cause:
-alternative 4's all-reference-level profile never co-occurs with alts 1-3, so
-ASC4 is unidentifiable once attributes are factor-coded. Fixes used: (a) drop
-ASCs entirely (alt 4's utility is then fixed at 0 by construction), or (b) add
-explicit 0/1 dummies for alts 2 and 3 only (not 4).
-
-For `mlogit`'s panel/mixed-logit models, use nested dfidx syntax to expose the
-respondent id: `dfidx(data, idx = list(c("chid", "Case"), "alt"), choice = "chosen")`
-then `id <- idx(mf, 1, 2)` internally gives panel grouping by respondent.
-
-## Reproducibility pipeline (already built, re-run as needed)
-- `R/log_loss.R`: `log_loss(actual, pred)` -- matches the competition's exact
-  metric; verified against benchmark (1.386294 for uniform 1/4 guess).
-- Long-format reshape (`train_long`, `tidyr::pivot_longer`) and a **respondent-
-  level** 80/20 train/validation split (seed 7402, `val_cases`), saved to
-  `data_processed/train_val_split.rds` (gitignored). Splitting by respondent
-  (not row) avoids leaking a person's 19 repeated tasks across the split.
-- `submissions_log.csv`: running tracker of every model tried -- local
-  validation log loss, public LB score (once submitted), gap, and a
-  `source_citation` column (report must cite non-class methods).
-- `cleaning_log.md`: full narrative log of data audit + modeling findings, for
-  pulling into the report.
+## Reproducibility pipeline
+- `R/log_loss.R`: matches the competition's exact metric; verified against
+  benchmark (1.386294 for uniform 1/4 guess).
+- Canonical single-split validation: long-format reshape + **respondent-level**
+  80/20 split (seed 7402), saved to `data_processed/train_val_split.rds`
+  (gitignored, regenerate from `train.csv` locally -- see `competition_report.qmd`
+  for the reshape code, or any of the `R/*.R` scripts for a from-scratch version).
+- Canonical 5-fold CV: respondent-grouped, seed 4821, pooled out-of-fold log loss
+  (not averaged per-fold, pooled across all folds' held-out predictions). Used to
+  confirm every real finding below -- single-split screening first (fast), CV
+  confirmation before trusting a result.
+- `submissions_log.csv`: every model tried, submitted or not, with val/CV log
+  loss, public LB score, gap, and source citation. Single source of truth for
+  what's been tried -- check before re-trying something.
+- `cleaning_log.md`: full narrative log of every data/modeling finding, in
+  chronological order, with the reasoning behind each result (positive or
+  negative). More detail than this file; read it for the "why", not just "what".
+- `R/` scripts of note: `cv_price_factor_context.R` and `cv_ensemble_v10.R` are
+  the current canonical 5-fold CV harnesses (mlogit, and mlogit+xgboost blend
+  respectively); `submit_ensemble_v11.R` generates the current best submission;
+  `error_analysis.R` / `calibration_check.R` are the diagnostic scripts behind
+  the "is there more signal left" analysis below.
 - Local environment note: this machine's security policy blocks some compiled
   tidyverse DLLs (tibble/utf8 printing) -- use plain data frames (`as.data.frame()`)
-  instead of tibbles when this happens.
+  instead of tibbles if this happens. Also: xgboost 3.x's R API no longer exposes
+  `$evaluation_log` on the returned booster object (bare external pointer only)
+  -- pick nrounds from the printed per-iteration curve or via `xgb.cv()` instead
+  of relying on `$best_iteration`/`$evaluation_log`.
 
-## Models tried so far (validation log loss, best to worst)
-Note: rows added 2026-07-25 (bottom-up review onward) report BOTH single-split val
-and 5-fold respondent-grouped CV where available; CV (seed 4821 folds) is the more
-reliable number. Under the same CV folds, plain mod8 = 1.1662 (baseline for comparing
-the new terms).
+## Model progression (best single logit and best ensemble at each stage)
+CV = 5-fold respondent-grouped, seed 4821, pooled. Val = single 80/20 split, seed 7402.
 
-| Model | Val. log loss | Public LB | Notes |
+| Model | Val | CV | Public LB | Notes |
+|---|---|---|---|---|
+| benchmark (uniform 0.25) | 1.386 | -- | 1.38629 | sanity check |
+| mod1: continuous conditional logit + ASCs | 1.236 | -- | 1.270 | first submission; gap 0.034 |
+| mod2b: factor-coded attributes + alt2/3 dummies, no ASC | 1.219 | -- | -- | factor-coding attribute levels beats linear (non-linearity confirmed) |
+| mod6: mod2b + Price x covariate (income/age/miles/night) | 1.205 | -- | -- | biggest single gain from observed heterogeneity |
+| mod7: mod6 + inside-good x covariate | 1.202 | -- | 1.230 | gap 0.028 |
+| mod8: mod7 + Price/inside x segment (6 levels) | 1.190 | 1.166 | -- | segment is strong, not diminishing returns |
+| m8t: mod8 + task-fatigue (Price x centered task position) | 1.187 | 1.162 | -- | price sensitivity rises over the 19-task survey |
+| m8tr: m8t + region x / ppark x (previously unused covariates) | 1.170 | 1.157 | -- | best single mlogit before this session |
+| xgboost (wide-format, multi:softprob, nrounds=73) | 1.204 | 1.179 | -- | worse alone; different error pattern, useful in ensemble |
+| ensemble_v9: 0.70 m8tr + 0.30 xgboost | -- | 1.152 | 1.204 | gap jumped to 0.052 (vs 0.028-0.034 on simpler models) |
+| **mlogit_m8trp: m8tr + Price-as-12-level-factor + is_cheapest/is_dearest** | 1.166 | **1.152** | -- | single logit now matches the whole v9 ensemble; see finding #2 above |
+| ensemble_v10: 0.75 m8trp + 0.25 xgboost | -- | 1.148 | -- | not submitted (superseded before a slot was used) |
+| **mlogit_m8trpg: m8trp + price_gap_min/max (distance to cheapest/dearest, not just rank)** | 1.160 | **1.147** | -- | biggest single incremental gain of the session, from just 2 params |
+| **ensemble_v11: 0.80 m8trpg + 0.20 xgboost** | -- | **1.145** | **1.202** | **CURRENT BEST**, both CV and public. Gap 0.057, largest yet |
+
+Negative/null results (all real attempts, logged for the report's "alternatives
+tried" section, not dead ends to re-try):
+- Nested logit (bundles vs. opt-out): no improvement over the fixed zero-utility
+  opt-out reference.
+- Mixed logit (any variant -- full random, Price-only random, on top of mod8):
+  either overfits badly (full random) or gives negligible gain (Price-only, once
+  observed heterogeneity is already in the model) -- expected given test
+  respondents are entirely new.
+- Attribute x segment (mod9): slightly worse than mod8; feature valuation doesn't
+  vary by segment beyond what Price/inside x segment already capture.
+- Relative price (Price - task mean, applied to inside goods): near-zero effect,
+  degenerate by construction (a constant shift across alternatives cancels in
+  the logit). The *rank-based* version (is_cheapest/is_dearest) is what carries
+  signal -- relative price only matters through rank/magnitude vs. the choice
+  set's extremes, not a mean-centered shift.
+- Relative feature load (attribute sum vs. task mean): noise, no effect.
+- Price x {gender, urbanicity, education}: individually looked significant
+  (p<1e-8) but single-split validation got WORSE (1.1699 vs 1.1657) -- a
+  significance-vs-validation disconnect, left out.
+- Quadratic task-fatigue term (P_task^2): same story, looked significant,
+  validation got worse.
+- Choice-structured xgboost (binary chosen/not-chosen on long-format rows,
+  renormalized within task, instead of wide-format multi:softprob): null result,
+  1.2053 vs 1.2042 for the original -- naive renormalization doesn't actually
+  teach the model the within-task comparison structure. A real ranking-loss
+  objective (`rank:pairwise`/`rank:ndcg` with `qid` grouping) might, but wasn't
+  tried -- this is genuinely still open if someone wants to push xgboost further.
+- Binned (categorical) Price x {age, miles, night} interactions, extending the
+  Price-as-factor logic to other covariates: mostly negative. All three combined
+  caused a large regression (1.1934) from extreme sparsity in nightind's top two
+  bins (~6 respondents each -> one coefficient blew up to -0.815, quasi-
+  separation). Individually: age alone (balanced, 5 levels) gave a tiny real
+  gain (1.16495 vs 1.16573); miles alone was worse. Lesson: the continuous-to-
+  categorical trick that worked for Price does NOT generalize automatically --
+  it depends on per-cell sample size, must be checked category-by-category.
+- Proper stacking (conditional-logit meta-model on log(p_mlogit), log(p_xgb),
+  i.e. log-linear/geometric pooling instead of a fixed arithmetic blend weight):
+  null result, 1.1461 vs the simple blend's 1.1451 (nested 5-fold CV). With only
+  two base models and xgboost getting a small minority weight anyway, there's
+  essentially one real degree of freedom in the ensemble and the simple weighted
+  average already finds it.
+- K-means "persona" clustering (5 clusters on scaled income/age/miles/night,
+  fit on training respondents only) as a Price/inside interaction axis: negative,
+  1.1657 vs 1.1597 without it -- redundant with the individual covariate
+  interactions already in the model, re-slices existing information.
+
+## Diagnostic: is there more legitimate signal left to find?
+Ran a multi-angle check on the ensemble's out-of-fold predictions before
+concluding this (see `cleaning_log.md`, 2026-07-26 entries, for full numbers):
+1. **Calibration is excellent.** Binning every predicted probability against
+   whether that alternative was actually chosen: predicted and actual match
+   within 1-2 percentage points across the entire 0-0.8 probability range.
+2. **"Confident misses" are the expected flip side of calibration, not a flaw.**
+   49.5% of tasks are argmax-misses; 36.3% of those have a large gap between the
+   top pick and the true alternative's probability. This is mathematically
+   necessary for a well-calibrated model on a genuinely stochastic process (a
+   60%-confident model IS wrong 40% of the time), confirmed by the calibration
+   check rather than assumed.
+3. **No identifiable subgroup drives the misses** -- confident-miss rate is flat
+   across segment/task-position/region/true-class (0.15-0.21 everywhere). A
+   fixable, generalizable pattern would show up as an outlier slice; none does.
+4. **Log loss isn't concentrated in a few catastrophic failures** -- worst 10% of
+   tasks account for 21% of total loss, not 80%+.
+5. **xgboost (flexible, non-parametric, same raw covariates) doesn't out-predict
+   the hand-built logit** (1.179 vs 1.147) and only earns 20% ensemble weight --
+   if there were a large pocket of exploitable interactions/nonlinearities left
+   in the existing covariates, a flexible learner should be finding more of it.
+6. **Theoretical ceiling check:** the most flexible model ever tried (mod4, full
+   random-coefficient mixed logit, 20 parameters per respondent) reached a
+   *training* log-likelihood of -16449 over 17,252 tasks = training log loss
+   ~0.953 -- and this is achieved via respondent-specific memorization that
+   provably does NOT transfer (mod4's own validation score, 1.247, was worse
+   than simpler models). Since test respondents are entirely new, the
+   achievable floor via only-generalizable modeling sits above, not below, that
+   ~0.95 ceiling.
+
+**Conclusion:** this is a reasonably strong, multi-angle case that ensemble_v11
+(CV 1.145, public 1.202) is close to the practical floor for this dataset via
+legitimate, generalizable modeling -- not a claim that literally nothing more
+exists, but real evidence rather than an assumption. Every actual attempt after
+the price-gap finding (stacking, K-means, binned covariates beyond age) came
+back negative, consistent with this.
+
+## Open question worth a second opinion
+**The public leaderboard's current top score is reportedly in the low-1.1x
+range** -- meaningfully below our 1.202. Two possibilities, and we don't yet
+know which:
+(a) a genuinely better, still-unfound modeling approach exists on this data
+(the diagnostic above argues this is unlikely via the feature-engineering
+avenues we've tried, but doesn't rule out a structurally different approach --
+e.g. a real ranking-loss objective, a finite-mixture/latent-class logit, which
+we haven't tried, unlike continuous random-coefficients which we have), or
+(b) that score reflects leaderboard overfitting/probing or a data quirk that
+won't hold up on the private leaderboard (this competition's public LB is only
+~70% of test, ~3,500 rows, non-trivial sampling noise; also plausible given the
+gap-growth pattern below).
+**If you're reviewing this project, this is the most useful thing to push on:**
+is there a structurally different modeling idea (not just another interaction
+term) that could plausibly close a 0.05-0.10 gap, given everything above?
+
+## Known weakness: CV-to-public gap is growing with model complexity
+| Model | CV/Val | Public | Gap |
 |---|---|---|---|
-| **ensemble_v9**: 0.70×(mod8+task+region+ppark) + 0.30×xgboost | **1.1517 (CV)** | pending | **CURRENT BEST**; `submission_ensemble_v9_mlogit_xgb.csv` (ready to submit). Blend weight chosen by 5-fold CV on out-of-fold preds; flat optimum 0.65–0.75 |
-| m8tr: mod8 + task-fatigue + region× + ppark× interactions | 1.1696 / **1.1567 (CV)** | -- | best single mlogit; region/ppark gain CV-confirmed (not just single-split) |
-| m8t: mod8 + task-fatigue (In_task, P_task) | 1.1866 / 1.1622 (CV) | -- | P_task highly significant: price sensitivity rises over the 19 tasks (survey fatigue) |
-| xgboost: gradient-boosted trees, multiclass (nrounds=73) | 1.2042 / 1.1787 (CV) | -- | worse alone, but valuable in ensemble (makes different errors than the logit) |
-| mod8: mod7 + Price×segment + inside×segment interactions | 1.1896 / 1.1662 (CV) | pending | superseded by m8tr/ensemble; `submission_mlogit_v8_segment_interactions.csv` |
-| glmnet cox LASSO (stratified-Cox = conditional logit, L1 interaction selection) | 1.1937 | -- | rediscovers mod8's structure from a 195-term pool; confirms but doesn't beat it |
-| mod7: mod2b + Price×covariate + inside-good×covariate interactions | 1.2024 | **1.230** | gap vs val 0.028, comparable to mod1's; beats mod1 public (1.270) |
-| mod6: mod2b + Price×covariate interactions (income, age, miles, night) | 1.2049 | -- | big gain from observed price-sensitivity heterogeneity; superseded by mod7 |
-| mod2b: factor-coded conditional logit + alt2/alt3 dummies | 1.219 | pending | submitted as `submission_mlogit_v2_factors_dummies.csv` |
-| mod2a: factor-coded conditional logit, no ASC | 1.220 | -- | superseded by mod2b |
-| lasso_multinomial_v1: glmnet LASSO multinomial (wide format, per-class independent coefs, grouped CV by respondent) | 1.226 | -- | different model family (no shared slope across alts); 58/151 predictors retained, pulled in respondent covariates not yet in mlogit models |
-| mod5: mixed logit, Price random only | 1.235 | -- | avoids overfitting seen in mod4 |
-| mod1: continuous conditional logit + ASCs | 1.236 | **1.270** | only model submitted to Kaggle so far; gap ~0.034, reassuring (no overfitting) |
-| mod4: mixed logit, all 20 attrs random | 1.247 | -- | **overfits**: training LL much better (-16449 vs -20432) but validation worse than mod1 -- cautionary tale used in report |
-| cart_v1: default rpart CART | 1.293 | -- | worse than all logit models, as expected for this task type |
-| benchmark (1/4 each) | 1.386 | 1.38629 | sanity check |
+| mod1 | 1.236 | 1.270 | 0.034 |
+| mod7 | 1.202 | 1.230 | 0.028 |
+| ensemble_v9 | 1.152 | 1.204 | 0.052 |
+| ensemble_v11 | 1.145 | 1.202 | 0.057 |
 
-Regsubsets screening (linear-probability heuristic, not a real model) confirmed
-all 20 attributes are worth keeping, with Price entering first and dominating
-(R^2 = 0.066 of 0.077 total across all 20 vars).
+Going from ensemble_v9 to ensemble_v11, CV improved by 0.0066 but public only
+improved by 0.002 -- roughly 70% of the apparent CV gain didn't show up on the
+public score, because the gap grew almost as much as the CV improved. Plausibly
+partly public-sample noise (~3,500 rows), but the consistent direction across
+4 data points as complexity has grown is worth treating as a real pattern for
+the report's public-vs-private discussion, not dismissing as noise.
 
-## Git workflow
-- Working branch: `zhenhao`. `.gitignore` excludes `csv files/` and
-  `data_processed/` (raw + derived data, regenerate locally).
-- Merged into `main` once already; resolved a `.gitignore` conflict by taking
-  the union of both versions' rules.
+## Team / git state
+- Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
+  Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
+  Sng Zhenhao.
+- `main` was reconciled 2026-07-25/26 via PR: brings in `zhenhao`'s full
+  progression + Imelda's models (her best: `mlogit_v3_combined`-family at
+  1.202-1.220, all behind the team's own mlogit line -- see submissions_log.csv
+  for the individual experiment results, both hers and the negative results her
+  own testing found). Branch protection now enabled on `main` (PR + 1 approval
+  required, no direct pushes).
+- Clarence's `eda_clarence`/`xgboost.R` deliberately NOT yet merged into `main`:
+  her validation split is Task-based (<=12 vs >12), not respondent-grouped,
+  which leaks a respondent's tasks across train/test -- her reported number
+  isn't trustworthy until fixed. Also has a hardcoded machine-specific `setwd()`.
+- Zeening's random forest (`rf_gridsearch`, ranger, grid-searched mtry/
+  min.node.size) submitted: public 1.259. Her internal CV (1.162) is unreliable
+  for the same reason as Clarence's -- her split is fully row-level random
+  (`sample(1:nrow(...))`), not respondent-grouped, so nearly every respondent's
+  tasks are scattered across both her train and validation sets. Gap (0.097) is
+  the largest of any model in the project, empirically confirming the concern.
+  Her K-means "persona" clustering idea was re-tested as a logit heterogeneity
+  axis (see negative results above) -- didn't transfer, but was a legitimate
+  idea worth checking.
 
-## Next steps / what to do in a new session
-1. **Submit the ensemble** (`submission_ensemble_v9_mlogit_xgb.csv`, CV 1.1517) --
-   current best. Also worth submitting mod8 (`submission_mlogit_v8_segment_interactions.csv`)
-   and m8tr for public-LB calibration. mod7 already submitted: public 1.230 (val 1.2024,
-   gap 0.028). If the ~0.03 val-to-public gap holds, ensemble expected public ~1.18.
-   Log public scores in `submissions_log.csv` when available.
-2. DONE (bottom-up review 2026-07-25): added task-fatigue (In_task, P_task -- price
-   sensitivity rises over the 19 tasks) and region×/ppark× interactions to mod8; both
-   CV-confirmed. Built a 0.70/0.30 mod8(+task+region+ppark)/xgboost ensemble, weight
-   chosen by 5-fold CV on OOF preds. The final feature builder is `build_all(df,ctr,scl)`
-   in the session (segment + task + region + ppark interactions; scaler from TRAINING).
-3. **The report (`competition_report.qmd`) is now STALE** -- it features mod8 (1.1896)
-   as best. Update it to: (a) feature the ensemble as best (CV 1.1517), (b) add the
-   task-fatigue and region/ppark findings, (c) add the KEY insight that test respondents
-   are entirely new people (Case 1136–1398, zero overlap with train 1–1135) -- this
-   explains why mixed-logit random effects don't transfer and justifies the
-   observed-heterogeneity strategy; our respondent-level CV mirrors this correctly.
-4. Remember: only 2 Kaggle submissions/day -- use local CV log loss to choose what's
-   worth submitting rather than testing everything on Kaggle.
-5. If prompting a fresh session: ask me (the assistant) to read this file plus
-   `cleaning_log.md` and `submissions_log.csv` first, then say what you want to try
-   next (e.g. "submit the ensemble", "update the report", "test attribute interactions").
+## Next steps
+1. Update `competition_report.qmd` -- currently stale, still features mod8 as
+   best. Needs: ensemble_v11 as best model, the price-factor/price-gap findings
+   with the identification story (good technical narrative for the report), the
+   test-respondent-disjointness insight, the calibration/error diagnostic as
+   evidence for the limitations section, and the growing CV-to-public gap for
+   the public-vs-private section.
+2. Only 2 Kaggle submissions/day (shared team-wide) -- use CV to decide what's
+   worth a slot. Clarence's model still needs a fixed validation split before
+   it's worth trusting or submitting.
+3. If a genuinely different structural idea surfaces (see "open question"
+   above), it's worth testing -- but exhaust it via CV before assuming it's a
+   real gain, given how many individually-significant terms have turned out to
+   hurt validation this session.
