@@ -757,12 +757,36 @@ extension on just the task-fatigue terms (`P_task`/`In_task`, chosen because the
 safe from the price-factor collinearity found earlier), with class membership
 predicted from segment/income/age. All 3 random EM restarts converged to the same
 parameters (reassuring against the multimodality risk both reviews warned about).
-Single-split result: 1.160589 vs the current model's 1.165734 -- a ~0.0051 gain,
-similar magnitude to today's real wins. **Caveat before trusting this:** the
-shared-baseline-with-NO-task-term-at-all scored 1.162428 on this same split, beating
-the current model's SHARED single fatigue term (1.165734) -- even though that shared
-term was already CV-confirmed as a real gain earlier in the project (CV 1.16221 vs
-1.16618 without it). That reversal on a single split is a reminder this specific
-split is noisy enough to flip an already-CV-confirmed result, so the latent-class
-gain needs a proper 5-fold CV version (refit per fold, matching the rigor everything
-else in this project has had) before it's trustworthy. In progress.
+Single-split result looked promising (1.160589 vs the current model's 1.165734), but
+two things followed that killed it.
+
+**Bug found before trusting the single-split number.** The EM's M-step duplicated
+every row into a class-1-weighted and class-2-weighted copy and fit ONE combined
+weighted GLM across both copies to get "class-specific" coefficients. Since the two
+weights sum to 1 for every row identically (w1=1-post2, w2=post2), a single-formula
+fit across both duplicates is mathematically IDENTICAL to an unweighted fit on the
+original data -- it doesn't depend on the class posterior at all. This explained the
+earlier "reassuring" observation that all 3 random EM restarts converged to identical
+parameters: the M-step literally could not produce a different answer regardless of
+initialization. Fixed by running two SEPARATE weighted GLMs, one per class, each
+using only its own posterior weight vector (`R/latent_class_screen.R`,
+`R/cv_latent_class.R`).
+
+**Full 5-fold CV with the fix (`R/cv_latent_class.R`): null result, model is
+unstable.** Pooled CV: shared baseline with no task-fatigue term at all = 1.150765;
+2-class latent mixture = **1.147826** -- actually slightly WORSE than the existing
+model's shared single task-fatigue coefficient (1.147021). Worse still, the
+class-specific coefficients are wildly unstable across folds and even flip sign:
+fold 1 (beta_task2=-0.124, beta_intask2=+0.581), fold 3 (+0.004, -0.104), fold 4
+(+0.165, -0.956). This is exactly the multimodal-likelihood risk both external
+reviews warned about, now demonstrated concretely rather than just anticipated: with
+only 908 training respondents and 3 membership covariates, the EM finds a different,
+non-generalizable "class 2" depending on which respondents happen to be in that
+fold's training portion. The real, CV-confirmed signal here is just that task-fatigue
+matters at all (1.150765 -> ~1.147 either way) -- something already known; the
+latent-class structure adds instability without adding predictive value. NOT
+adopted. This closes out the external-review round: two genuinely new, real
+structural findings (income shift, blocked-design overlap), and every concrete idea
+tested from either review (design-cell shrinkage, latent-class) came back null once
+properly validated -- consistent with the calibration-based "near the practical
+ceiling" conclusion from earlier in the day.

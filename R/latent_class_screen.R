@@ -129,29 +129,21 @@ for (start in 1:n_starts) {
     # M-step (a): membership model via weighted logistic regression (soft labels)
     gamma <- coef(glm(post2 ~ Zmat - 1, family = binomial()))
 
-    # M-step (b): class-specific P_task/In_task via weighted duplication trick.
-    # Duplicate every row twice (class1 copy, class2 copy); weight = posterior
-    # prob of that class; P_task/In_task zeroed out for the "wrong" class's copy.
-    w_resp <- 1 - post2[as.character(tr_feat$Case)]
-    dup1 <- tr_feat %>% mutate(w = w_resp, cls = 1)
-    w_resp2 <- post2[as.character(tr_feat$Case)]
-    dup2 <- tr_feat %>% mutate(w = w_resp2, cls = 2)
-    dup <- bind_rows(dup1, dup2)
-    dup$P_task_use <- dup$P_task; dup$In_task_use <- dup$In_task
-    dup$row_id <- paste(dup$chid, dup$cls, sep = "_c")
-    off_rep <- rep(offset_tr, 2)
-    dup$off <- off_rep
-
-    fit_cls <- tryCatch({
-      m_fit <- glm(chosen ~ P_task_use + In_task_use, data = dup, weights = dup$w,
-                   offset = dup$off, family = quasibinomial())
-      coef(m_fit)[c("P_task_use", "In_task_use")]
-    }, error = function(e) c(P_task_use = 0, In_task_use = 0))
-    # crude: reuse the same small perturbation for both classes' relative
-    # difference (full per-class-conditional-logit M-step is more correct but
-    # heavier; this quasi-GLM version is a fast approximation for screening)
-    beta_task <- c(0, fit_cls["P_task_use"])
-    beta_intask <- c(0, fit_cls["In_task_use"])
+    # M-step (b): two SEPARATE weighted fits, one per class. (A single fit on
+    # duplicated rows with weights w1=1-post2, w2=post2 is WRONG -- w1+w2=1
+    # identically, so a combined single-formula fit is mathematically
+    # independent of post2 entirely. Confirmed this bug produced identical
+    # convergence regardless of random start before this fix.)
+    w1 <- 1 - post2[as.character(tr_feat$Case)]
+    w2 <- post2[as.character(tr_feat$Case)]
+    fit1 <- tryCatch(
+      coef(glm(chosen ~ P_task + In_task, data = tr_feat, weights = w1, offset = offset_tr, family = quasibinomial())),
+      error = function(e) c(`(Intercept)` = 0, P_task = 0, In_task = 0))
+    fit2 <- tryCatch(
+      coef(glm(chosen ~ P_task + In_task, data = tr_feat, weights = w2, offset = offset_tr, family = quasibinomial())),
+      error = function(e) c(`(Intercept)` = 0, P_task = 0, In_task = 0))
+    beta_task <- c(fit1["P_task"], fit2["P_task"])
+    beta_intask <- c(fit1["In_task"], fit2["In_task"])
   }
   cat("Final total log-lik:", total_ll, " class2 beta_task:", beta_task[2], " beta_intask:", beta_intask[2], "\n")
   if (total_ll > best_ll) {

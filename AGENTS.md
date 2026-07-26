@@ -211,12 +211,14 @@ exists, but real evidence rather than an assumption. Every actual attempt after
 the price-gap finding (stacking, K-means, binned covariates beyond age) came
 back negative, consistent with this.
 
-## Open question (partially answered by a 2026-07-26 external-review round)
+## Resolved: external-review round (2026-07-26) -- every concrete idea tested
 **The public leaderboard's current top score is reportedly in the low-1.1x
 range** -- meaningfully below our 1.202. Two independent LLM reviews (fed this
-file as a brief) both flagged the same set of checks; ran the concrete ones
+file as a brief) both flagged the same set of checks; ran every concrete one
 rather than taking them on faith (full detail in `cleaning_log.md`,
-2026-07-26 "External review round" entry):
+2026-07-26 "External review round" entries). **Conclusion: two genuinely new
+structural facts confirmed and worth citing in the report; every idea aimed at
+actually improving the score came back null once properly validated.**
 
 - **Adversarial validation (`R/adversarial_validation.R`): real covariate
   shift confirmed.** AUC 0.634 distinguishing train/test respondents by
@@ -239,27 +241,35 @@ rather than taking them on faith (full detail in `cleaning_log.md`,
   the smallest ones (xgboost's ensemble contribution) are real but closer to
   the edge than they looked; the stacking null result is confirmed correct
   (not a coin flip).
-- **Latent-class logit (`R/latent_class_screen.R`): the one idea still open.**
-  Both reviews independently flagged this as the single structurally
-  different approach worth trying (unlike continuous mixed logit, class
-  membership from *observed* covariates transfers to new respondents by
-  construction). `gmnl` (the standard package) has no `predict(newdata=...)`
-  method and no native "restricted" class structure, so hand-rolled a scoped
-  EM version instead: fixed the confirmed m8trpg utility as a shared
-  baseline, fit a small 2-class extension on just the task-fatigue terms.
-  Single-split result promising (1.1606 vs 1.1657) but NOT YET CV-confirmed --
-  a single-split reversal in the same test (removing task-fatigue entirely
-  beat the current shared-term model on this split, despite that shared term
-  being already CV-confirmed as real) is a concrete reminder not to trust it
-  yet. Building the proper 5-fold CV version next.
+- **Latent-class logit (`R/cv_latent_class.R`): tried properly, null result,
+  and unstable.** Both reviews independently flagged this as the single
+  structurally different approach worth trying (unlike continuous mixed
+  logit, class membership from *observed* covariates transfers to new
+  respondents by construction). `gmnl` (the standard package) has no
+  `predict(newdata=...)` method and no native "restricted" class structure,
+  so hand-rolled a scoped EM version: fixed the confirmed m8trpg utility as a
+  shared baseline, fit a small 2-class extension on just the task-fatigue
+  terms, class membership from segment/income/age. Caught and fixed a real
+  M-step bug along the way (a duplicated-row weighting scheme that was
+  mathematically independent of the class posterior -- explained the
+  suspiciously identical convergence across random restarts). With the fix,
+  full 5-fold CV: **1.147826, slightly WORSE than the existing shared-
+  coefficient model (1.147021)**, and the class-specific coefficients flip
+  sign across folds (beta_task2 ranges -0.248 to +0.165) -- the multimodal-
+  likelihood instability both reviews warned about, demonstrated concretely
+  rather than avoided. Not adopted.
 
-**Remaining honest uncertainty:** even after this round, we still don't know
-whether the low-1.1x leaderboard score is genuine skill (most likely
-explanation if real: something in the latent-class family, or a cleverer
-correction for the confirmed income shift) or leaderboard-adaptation risk that
-won't hold up privately. The confirmed income shift and the blocked-design
-finding are both real, report-worthy insights regardless of whether the
-latent-class model pans out.
+**Conclusion:** the low-1.1x leaderboard score, if genuine, is not explained
+by anything in this round's investigation -- the two most theoretically
+credible levers (design-cell empirical information, latent/discrete
+heterogeneity) both failed on honest validation. Combined with the earlier
+calibration diagnostic (well-calibrated, no exploitable pattern in the
+misses, xgboost can't out-predict the logit), the case that ensemble_v11 is
+near this dataset's practical ceiling for legitimate, generalizable modeling
+is now supported from multiple independent angles, not just one. The
+confirmed income shift and blocked-design overlap are real, report-worthy
+insights regardless -- cite them in the report even though neither improved
+the score.
 
 ## Known weakness: CV-to-public gap is growing with model complexity
 | Model | CV/Val | Public | Gap |
