@@ -211,22 +211,55 @@ exists, but real evidence rather than an assumption. Every actual attempt after
 the price-gap finding (stacking, K-means, binned covariates beyond age) came
 back negative, consistent with this.
 
-## Open question worth a second opinion
+## Open question (partially answered by a 2026-07-26 external-review round)
 **The public leaderboard's current top score is reportedly in the low-1.1x
-range** -- meaningfully below our 1.202. Two possibilities, and we don't yet
-know which:
-(a) a genuinely better, still-unfound modeling approach exists on this data
-(the diagnostic above argues this is unlikely via the feature-engineering
-avenues we've tried, but doesn't rule out a structurally different approach --
-e.g. a real ranking-loss objective, a finite-mixture/latent-class logit, which
-we haven't tried, unlike continuous random-coefficients which we have), or
-(b) that score reflects leaderboard overfitting/probing or a data quirk that
-won't hold up on the private leaderboard (this competition's public LB is only
-~70% of test, ~3,500 rows, non-trivial sampling noise; also plausible given the
-gap-growth pattern below).
-**If you're reviewing this project, this is the most useful thing to push on:**
-is there a structurally different modeling idea (not just another interaction
-term) that could plausibly close a 0.05-0.10 gap, given everything above?
+range** -- meaningfully below our 1.202. Two independent LLM reviews (fed this
+file as a brief) both flagged the same set of checks; ran the concrete ones
+rather than taking them on faith (full detail in `cleaning_log.md`,
+2026-07-26 "External review round" entry):
+
+- **Adversarial validation (`R/adversarial_validation.R`): real covariate
+  shift confirmed.** AUC 0.634 distinguishing train/test respondents by
+  covariates alone; driven mainly by income (test skews ~33% higher at the
+  median, with top income brackets 3x+ over-represented). Partially explains
+  the growing CV-to-public gap; not yet turned into a validated fix (a
+  distribution-shift correction can't be honestly scored via in-training CV,
+  and a simpler univariate income-tercile check gave an ambiguous, not
+  clearly-actionable signal -- see cleaning_log.md point 4).
+- **Design/block structure (`R/design_fingerprint_check.R`): a real, novel
+  structural fact, but not exploitable.** The conjoint design is heavily
+  blocked (~296 distinct designs per task position, ~3.8 respondents/design),
+  and 98.5% of test tasks' exact designs recur in train. Tried exploiting this
+  via empirical-frequency shrinkage per design cell -- negligible gain
+  (0.00035, inside the noise floor), because too few respondents (~3-4) share
+  each design for a reliable empirical estimate.
+- **Bootstrap CV uncertainty (`R/bootstrap_cv_uncertainty.R`): now
+  quantified.** Absolute CV noise SD ~=0.01; paired-comparison noise SD
+  ~=0.001. This project's big wins (price-factor, price-gap) are solidly real;
+  the smallest ones (xgboost's ensemble contribution) are real but closer to
+  the edge than they looked; the stacking null result is confirmed correct
+  (not a coin flip).
+- **Latent-class logit (`R/latent_class_screen.R`): the one idea still open.**
+  Both reviews independently flagged this as the single structurally
+  different approach worth trying (unlike continuous mixed logit, class
+  membership from *observed* covariates transfers to new respondents by
+  construction). `gmnl` (the standard package) has no `predict(newdata=...)`
+  method and no native "restricted" class structure, so hand-rolled a scoped
+  EM version instead: fixed the confirmed m8trpg utility as a shared
+  baseline, fit a small 2-class extension on just the task-fatigue terms.
+  Single-split result promising (1.1606 vs 1.1657) but NOT YET CV-confirmed --
+  a single-split reversal in the same test (removing task-fatigue entirely
+  beat the current shared-term model on this split, despite that shared term
+  being already CV-confirmed as real) is a concrete reminder not to trust it
+  yet. Building the proper 5-fold CV version next.
+
+**Remaining honest uncertainty:** even after this round, we still don't know
+whether the low-1.1x leaderboard score is genuine skill (most likely
+explanation if real: something in the latent-class family, or a cleverer
+correction for the confirmed income shift) or leaderboard-adaptation risk that
+won't hold up privately. The confirmed income shift and the blocked-design
+finding are both real, report-worthy insights regardless of whether the
+latent-class model pans out.
 
 ## Known weakness: CV-to-public gap is growing with model complexity
 | Model | CV/Val | Public | Gap |

@@ -669,3 +669,100 @@ flexibility to find missed interactions, this is a reasonably strong, multi-angl
 that the ensemble (CV 1.145) is close to the practical floor for this dataset using
 legitimate, generalizable modeling. Worth citing directly in the report's
 insights/limitations section as evidence-based, not just an assertion.
+
+## 2026-07-26: External review round -- adversarial validation, design overlap, bootstrap uncertainty, latent class
+
+Got two independent LLM reviews of the project (using the AGENTS.md summary as the
+brief) and ran the concrete, checkable suggestions rather than just taking them on
+faith. Two real, previously-unknown structural facts came out of it; two follow-up
+fixes tested null/ambiguous; one new model idea looks promising but isn't CV-confirmed
+yet.
+
+**1. Adversarial validation: real covariate shift, driven by income
+(`R/adversarial_validation.R`).** Fit a 5-fold-CV logistic classifier to distinguish
+train vs. test respondents from covariates alone. AUC = **0.634** (vs 0.5 for no
+shift) -- a real, detectable difference in who's in the two panels. `incomeind` is by
+far the most significant term (p<0.0001). Confirmed via raw comparison, not just an
+artifact of outliers: median `incomea` is 60,000 (train) vs 80,000 (test), a genuine
+~33% shift, and the top income brackets are 3x+ over-represented in test (bracket 28:
+3.4% of test respondents vs 1.1% of train; bracket 14: 9.1% vs 2.5%). This is a real,
+partial explanation for the growing CV-to-public gap that neither this project nor
+either reviewer had checked before.
+
+**2. Design/block structure: the conjoint design is heavily reused, but the reuse
+isn't exploitable (`R/design_fingerprint_check.R`, `R/design_cell_shrinkage.R`).**
+Fingerprinting each choice task by its exact 4-bundle attribute/price configuration
+(excluding respondent identity) revealed the experiment is **blocked**: each of the 19
+task positions draws from a fixed pool of only ~296 distinct designs, each shown to
+~3.8 respondents on average. Critically, **98.5% of test choice tasks (4,921/4,997)
+use an exact design that also appears somewhere in train.** This is a genuine,
+previously-unknown structural fact about the dataset. Tried to exploit it directly:
+for each task, blend the model's prediction with the empirical choice-share among
+OTHER training respondents who saw that exact design (properly cross-fitted per CV
+fold -- a respondent's own choice never informs their own prediction), shrunk toward
+the model via `(n*p_empirical + alpha*p_model)/(n+alpha)`. Result: **negligible gain**
+-- best alpha (80-160, i.e. very heavy shrinkage) gives 1.144742 vs the ensemble's
+1.145094 baseline, an improvement of 0.00035, inside the noise floor established below.
+Light shrinkage (alpha<20) actively hurts a lot (up to 1.29) since only ~3-4
+respondents see each design -- too few to estimate a reliable empirical frequency.
+Worth citing in the report as an insight (a real, non-obvious fact about the
+experimental design) even though it didn't yield a usable feature; it also indirectly
+supports the "near the practical ceiling" conclusion, since a model missing real
+combination-specific effects should have benefited more from this.
+
+**3. Bootstrap CV uncertainty (`R/bootstrap_cv_uncertainty.R`).** Neither this project
+nor either review had ever put a formal noise band on the CV deltas being compared
+(e.g. 1.147 vs 1.145). Bootstrapped the 1135 training respondents (with replacement,
+500 resamples) using the saved OOF predictions. Absolute CV log loss has SD ~=0.0099
+(a 95% CI of roughly +/-0.02 around any single point estimate) -- much wider than the
+0.003-0.006 deltas discussed all session. However, *paired* comparisons (same
+resamples, same respondents, for two models at once) are much tighter, SD ~=0.001,
+because respondent-level variation cancels in the difference. Under that lens: the
+big wins (price-factor, price-gap, each ~0.005) are comfortably real, several
+noise-SDs wide. The xgboost blend's own contribution (ensemble vs mlogit alone,
+0.0019) is real but close to the edge (ensemble wins in 96.6% of resamples, not
+99%+). The stacking "null result" (~0.001 apart) sits entirely inside the noise
+band -- confirms that call was correct, not just a coin flip we got lucky on.
+
+**4. Importance-weighted shift diagnostic (`R/importance_shift_diagnostic.R`):
+ambiguous, not actionable as-is.** Given the confirmed income shift, checked whether
+the model is specifically weaker on test-like respondents by reweighting the OOF
+evaluation using density-ratio importance weights (from the adversarial classifier).
+Weighted mean log loss (1.15768) is worse than unweighted (1.147021) -- suggestive.
+But a simpler univariate check (log loss by training income tercile) shows the
+OPPOSITE pattern: the high-income tercile has the BEST log loss (1.140), not the
+worst. So the shift is real, but it's not simply "the model is bad at rich people" --
+some more specific multivariate combination is involved, and per Claude's review's own
+caveat, a genuine distribution-shift correction can't be honestly validated via
+in-training CV (CV will always prefer no correction, since held-out training folds
+share the training distribution, not test's). Not implemented; flagged as real but
+needing either a submission-slot experiment or a more careful joint-covariate
+investigation to pin down, rather than forcing an unvalidated fix.
+
+**5. Latent-class task-fatigue model: promising on a single split, not yet
+CV-confirmed (`R/latent_class_screen.R`, `R/latent_class_evaluate.R`).** Both external
+reviews independently flagged finite-mixture/latent-class logit as the one
+structurally different idea worth trying (unlike continuous mixed logit, class
+membership is predicted from *observed* covariates, so it transfers to new
+respondents by construction). `gmnl` (the standard R package for this) turned out to
+have two practical blockers: no `predict()` method with `newdata` support at all
+(only in-sample `fitted()`), and no native support for a *restricted* class structure
+(shared attributes, few class-specific terms) -- its standard interface gives every
+variable a fully separate coefficient per class, which would mean ~230 parameters
+from 908 respondents. Hand-rolled a scoped alternative instead: fixed the entire
+confirmed m8trpg utility as a shared baseline (via `log(predicted prob)` as an offset,
+which sidesteps fragile manual design-matrix alignment against new data since softmax
+is shift-invariant to an additive constant), then used EM to fit a small 2-class
+extension on just the task-fatigue terms (`P_task`/`In_task`, chosen because they're
+safe from the price-factor collinearity found earlier), with class membership
+predicted from segment/income/age. All 3 random EM restarts converged to the same
+parameters (reassuring against the multimodality risk both reviews warned about).
+Single-split result: 1.160589 vs the current model's 1.165734 -- a ~0.0051 gain,
+similar magnitude to today's real wins. **Caveat before trusting this:** the
+shared-baseline-with-NO-task-term-at-all scored 1.162428 on this same split, beating
+the current model's SHARED single fatigue term (1.165734) -- even though that shared
+term was already CV-confirmed as a real gain earlier in the project (CV 1.16221 vs
+1.16618 without it). That reversal on a single split is a reminder this specific
+split is noisy enough to flip an already-CV-confirmed result, so the latent-class
+gain needs a proper 5-fold CV version (refit per fold, matching the rigor everything
+else in this project has had) before it's trustworthy. In progress.
