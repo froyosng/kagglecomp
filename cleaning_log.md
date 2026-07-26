@@ -557,3 +557,47 @@ listwise/ranking objective might -- xgboost's native multiclass softmax was alre
 capturing about as much of that structure as this surrogate does. Not pursued further
 (a real ranking-loss reformulation would take considerably more effort for an unproven
 payoff, and xgboost is already the minority partner in the ensemble).
+
+## 2026-07-26: Extending the price-context idea further -- price-gap magnitude (new best)
+
+With price-as-factor and is_cheapest/is_dearest confirmed working, tried extending the
+same idea two more directions: (1) does the *size* of a covariate's category matter,
+the same way Price's level did, and (2) does the *magnitude* of being cheap/dear
+matter, not just the rank.
+
+**Binned covariate x Price interactions (mostly negative).** Replaced the continuous
+Price x {age, miles, night} interactions with categorical bin versions, on the
+hypothesis that these might hide the same kind of non-monotonicity Price did. All
+three combined: validation log loss blew up to 1.1934 (vs 1.1657 without them) --
+`P_nightind10`'s coefficient came out at -0.815, wildly out of scale with every other
+coefficient in the model. Checked the frequency table: `nightind` levels 9-10 have
+only 133 and 114 rows total (roughly 6 respondents each) -- far too sparse to support
+a Price interaction, classic quasi-separation. Tested individually: age alone (5
+balanced levels, smallest group ~2,070 rows) gave a small genuine improvement (1.16495
+vs 1.16573); miles alone (9 levels, some thin categories) came out worse (1.16814).
+**Lesson: the continuous-to-categorical trick that worked so well for Price does not
+generalize automatically -- it only helps when there's enough data per cell, and needs
+checking category-by-category, not assumed.** Income (25 levels) wasn't even attempted
+given the sparsity risk is worse than night's. Not folded into the model given the
+gain (where it existed at all) was too small to justify the complexity.
+
+**Price-gap magnitude (real, large gain).** `is_cheapest`/`is_dearest` only encode
+*rank* within the choice set -- being RM1 more expensive than the cheapest option and
+being RM10 more expensive both just flip the same flag. Added `price_gap_min` /
+`price_gap_max`: the actual distance (in price levels) from this alternative's price
+to the task's cheapest/dearest, on top of (not replacing) the rank flags. Single-split
+screen alone: 1.159681 vs the confirmed base's 1.165734 -- the single largest
+incremental gain of the session, from just 2 parameters. 5-fold CV (seed 4821)
+confirms it: **1.147021**, a further ~0.0046 gain over the price-factor+context model
+(1.1516). Both terms are strongly significant and stable in magnitude across every
+specification tried in this session (`price_gap_min` ~0.13, `price_gap_max` ~0.026) --
+rank and magnitude are both real, complementary pieces of the same context effect.
+
+**Re-blended ensemble.** Same weight search as before (`R/cv_ensemble_v10.R`) with the
+stronger logit: optimum shifts to 0.80 logit / 0.20 xgboost, pooled OOF CV
+**1.145094** -- beats ensemble_v10 (1.14823) by ~0.0031 and the original ensemble_v9
+(1.1517) by ~0.0066 total. Submission file ready
+(`submission_ensemble_v11_pricegap.csv`), not yet submitted.
+
+Model progression this session (5-fold CV, seed 4821): m8tr 1.15671 -> +price-factor
++context 1.1516 -> +price-gap 1.147021 (logit alone) -> ensemble 1.145094.

@@ -79,6 +79,11 @@ make_features <- function(df, ctr, scl) {
   df <- left_join(df, task_stats, by = "chid")
   df$is_cheapest <- as.integer(df$inside == 1 & df$Price_num == df$price_min)
   df$is_dearest <- as.integer(df$inside == 1 & df$Price_num == df$price_max)
+  # magnitude versions alongside the rank flags: how far above the cheapest /
+  # below the dearest this alternative's price sits (0 for inside alts at the
+  # relevant extreme; 0 for the opt-out, which has no price_min/max context)
+  df$price_gap_min <- ifelse(df$inside == 1, df$Price_num - df$price_min, 0)
+  df$price_gap_max <- ifelse(df$inside == 1, df$price_max - df$Price_num, 0)
 
   df
 }
@@ -95,7 +100,7 @@ int_terms <- c(
   "P_task", "In_task",
   paste0("P_region", 2:5), paste0("In_region", 2:5),
   paste0("P_ppark", 2:5), paste0("In_ppark", 2:5),
-  "is_cheapest", "is_dearest"
+  "is_cheapest", "is_dearest", "price_gap_min", "price_gap_max"
 )
 
 price_terms <- paste0("Pr_lvl", 2:12)
@@ -120,4 +125,4 @@ pred_va <- predict(mod, newdata = mdat_va)
 ll <- log_loss(truth_mat[, paste0("Ch", 1:4)], pred_va[truth_mat$chid, ])
 
 cat("Validation log loss:", round(ll, 6), "\n")
-print(summary(mod)$CoefTable[grep("Pr_lvl|is_cheapest|is_dearest|P_task|In_task", rownames(summary(mod)$CoefTable), value = TRUE), c("Estimate", "Pr(>|z|)")])
+print(summary(mod)$CoefTable[grep("Pr_lvl|is_cheapest|is_dearest|price_gap", rownames(summary(mod)$CoefTable), value = TRUE), c("Estimate", "Pr(>|z|)")])

@@ -64,6 +64,8 @@ make_features <- function(df, ctr, scl) {
   df <- left_join(df, task_stats, by = "chid")
   df$is_cheapest <- as.integer(df$inside == 1 & df$Price_num == df$price_min)
   df$is_dearest <- as.integer(df$inside == 1 & df$Price_num == df$price_max)
+  df$price_gap_min <- ifelse(df$inside == 1, df$Price_num - df$price_min, 0)
+  df$price_gap_max <- ifelse(df$inside == 1, df$price_max - df$Price_num, 0)
   df
 }
 
@@ -77,7 +79,7 @@ int_terms <- c(
   "P_task", "In_task",
   paste0("P_region", 2:5), paste0("In_region", 2:5),
   paste0("P_ppark", 2:5), paste0("In_ppark", 2:5),
-  "is_cheapest", "is_dearest"
+  "is_cheapest", "is_dearest", "price_gap_min", "price_gap_max"
 )
 fml <- as.formula(paste("chosen ~", paste(c(attr_terms, price_terms, "d2", "d3", int_terms), collapse = " + "), "| 0"))
 
