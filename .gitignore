@@ -36,6 +36,8 @@ models/*
 submissions/*.csv
 !submissions/.gitkeep
 !submissions/submission_log.csv
+!submissions/submission_mnl.csv       # add lines for the ones you want
+!submissions/submission_ensemble.csv
 
 # Generated figures
 figures/*
