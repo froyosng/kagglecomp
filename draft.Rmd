@@ -1,0 +1,144 @@
+---
+title: "draft"
+output: html_document
+date: "2026-07-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Inspect data
+
+```{r}
+train <- read.csv("data/train.csv")
+test  <- read.csv("data/test.csv")
+
+dim(train)   # 21565 x 113
+dim(test)    # 4997  x 113
+
+str(train)
+str(test)
+```
+
+# Summary
+
+```{r}
+summary(train)
+head(train)
+```
+
+# Derive the single Choice variable
+
+```{r}
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+table(train$Choice)
+
+which(colnames(train)=="CC1")   # 4
+which(colnames(train)=="Price4") # 83
+```
+
+# Reshape training data (Task <= 12) for mlogit
+
+```{r}
+library(mlogit)
+S <- dfidx(subset(train, Task<=12), shape="wide", choice="Choice",
+           sep="", varying = c(4:83), idx = c("No", "Case"))
+head(S)
+```
+
+# Fit MNL + training log loss
+
+```{r}
+M <- mlogit(Choice~CC+GN+NS+BU+FA+LD+BZ+FC+FP+RP+PP+KA+SC+TS+NV+MA+LB+AF+HU+Price-1, data=S)
+summary(M)
+
+# --- log loss (competition metric) ---
+log_loss <- function(actual, pred, eps = 1e-15) {
+  actual <- as.matrix(actual)
+  pred   <- as.matrix(pred)
+  stopifnot(all(dim(actual) == dim(pred)))
+  pred <- pred / rowSums(pred)                 # rescale to sum to 1
+  pred <- pmin(pmax(pred, eps), 1 - eps)        # clip for numerical safety
+  -mean(rowSums(actual * log(pred)))
+}
+
+ActualChoice <- subset(train, Task<=12)[,"Choice"]
+P <- predict(M, newdata=S)
+
+truth_mat <- matrix(0, length(ActualChoice), 4)
+truth_mat[cbind(seq_along(ActualChoice), ActualChoice)] <- 1
+
+cat("Training log loss:", round(log_loss(truth_mat, P), 5), "\n")
+
+# benchmark sanity check (should be ~1.38629)
+bench <- matrix(0.25, length(ActualChoice), 4)
+cat("Benchmark (0.25 each):", round(log_loss(truth_mat, bench), 5), "\n")
+
+# accuracy table
+PredictedChoice <- apply(P, 1, which.max)
+Tabtrain <- table(PredictedChoice, ActualChoice)
+Tabtrain
+cat("Training accuracy:", round(sum(diag(Tabtrain))/sum(Tabtrain), 4), "\n")
+```
+
+# Validation on held-out tasks (Task > 12)
+
+This is still train.csv data — a held-out slice we can score, NOT the
+competition test set.
+
+```{r}
+Val <- dfidx(subset(train, Task > 12), shape = "wide", choice = "Choice",
+             sep = "", varying = c(4:83), idx = c("No", "Case"))
+
+ValPredict   <- predict(M, newdata = Val)          # n x 4 probability matrix
+ActualChoiceV <- subset(train, Task > 12)[, "Choice"]
+
+# accuracy
+PredictedChoiceV <- apply(ValPredict, 1, which.max)
+Tabval <- table(PredictedChoiceV, ActualChoiceV)
+Tabval
+cat("Validation accuracy:", round(sum(diag(Tabval)) / sum(Tabval), 4), "\n")
+
+# validation log loss (our real held-out estimate)
+truth_matV <- matrix(0, length(ActualChoiceV), 4)
+truth_matV[cbind(seq_along(ActualChoiceV), ActualChoiceV)] <- 1
+cat("Validation log loss:", round(log_loss(truth_matV, ValPredict), 5), "\n")
+```
+
+# GAP SOLVED: refit on ALL of train, predict on the real test.csv, submit
+
+Now we use the actual competition test set. `test.csv` has blank `Ch1..Ch4`,
+so we add a placeholder `Choice` just so `dfidx` can build the object; the
+values are never used for prediction.
+
+```{r}
+# placeholder choice so dfidx works on the unlabelled test set
+test$Choice <- 1L
+
+# refit on ALL 19 tasks of train (not just Task<=12) so we use every observation
+S_all  <- dfidx(train, shape="wide", choice="Choice",
+                sep="", varying = c(4:83), idx = c("No", "Case"))
+S_test <- dfidx(test,  shape="wide", choice="Choice",
+                sep="", varying = c(4:83), idx = c("No", "Case"))
+
+M_full <- mlogit(Choice~CC+GN+NS+BU+FA+LD+BZ+FC+FP+RP+PP+KA+SC+TS+NV+MA+LB+AF+HU+Price-1,
+                 data = S_all)
+
+test_prob <- predict(M_full, newdata = S_test)   # 4997 x 4 probabilities
+
+# build submission in the exact sample format: No,Ch1,Ch2,Ch3,Ch4
+sample_sub <- read.csv("data/sample_submission.csv")
+submission <- data.frame(No = test$No,
+                         Ch1 = test_prob[,1], Ch2 = test_prob[,2],
+                         Ch3 = test_prob[,3], Ch4 = test_prob[,4])
+
+# safety checks
+stopifnot(all(names(submission) == names(sample_sub)))   # columns match
+stopifnot(all(submission$No == sample_sub$No))           # ids align
+cat("row sums:", range(rowSums(submission[,-1])), " NA:", anyNA(submission), "\n")
+
+if (!dir.exists("submissions")) dir.create("submissions")
+write.csv(submission, "submissions/submission_mnl.csv", row.names = FALSE)
+cat("Wrote submissions/submission_mnl.csv — ready to upload to Kaggle\n")
+```
