@@ -414,6 +414,38 @@ genuinely open after the ensemble-candidate review above -- `ensemble_v11`
 remains the best and current submission. Full detail in `cleaning_log.md`,
 2026-07-27, and `codex_shift_rank_findings.md`.
 
+## Resolved: continuous higher-order interactions (2026-07-27) -- one genuine but unconfirmed clue
+Third and (for now) final follow-up to Codex (branch `codex-triple-products`,
+commit `d987efa`, merged into `zhenhao`), explicitly designed to avoid the
+earlier binned-covariate failure by using **continuous** three-way products
+(`Price x z(covariate1) x z(covariate2)`, no binning -- a different risk
+profile from the sparse-cell quasi-separation that broke the binned version).
+Independently reviewed and cross-checked every number against the raw
+generated CSVs -- exact match, same clean result as the prior two rounds.
+
+**Best candidate: `Price x z(income) x z(mileage)`.** Coefficient is negative
+and stable across all 5 CV folds (-0.0541 to -0.0270) -- a real signal in the
+parameter. But the predictive gain isn't as stable (3 folds improve, 2
+worsen): blended into the *fixed* (not re-optimized) ensemble_v11 weight,
+1.145094 -> 1.144599 (+0.000495). Respondent-bootstrap 95% CI
+**[-0.000689, 0.001660] -- crosses zero**, so it doesn't clear the submission
+bar. Segment-specific mileage-x-price slopes, tested alongside it, were
+decisively harmful (CI excludes zero on the harmful side).
+
+**Not adopted; no submission made.** Flagged as a clue worth revisiting only
+if independent evidence appears, not a validated improvement.
+
+**Where this leaves the modeling search:** three consecutive, independently-
+verified rounds (4-way ranking/regularized-logit ensemble; covariate-shift
+refit + attribute ranks; continuous higher-order interactions) have each come
+back null or too small to distinguish from noise. Combined with the earlier
+diagnostic (excellent calibration, no exploitable subgroup, xgboost can't
+out-predict the logit), this is a strong, repeatedly-tested case that
+`ensemble_v11` is at or very near the practical ceiling for this dataset.
+With ~5 days left before the competition closes (2026-08-01), further effort
+is better spent on the report than another modeling round unless a genuinely
+new structural idea surfaces.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),

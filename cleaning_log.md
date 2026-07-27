@@ -1173,3 +1173,83 @@ project has now tested an actual fix (not just a diagnostic) for the confirmed
 covariate shift, and the natural extension of its biggest single win, and both
 came back negative under the same CV + respondent-bootstrap standard used
 throughout. `ensemble_v11` remains the best and current submission.
+
+## 2026-07-27: Continuous higher-order interaction experiments -- one genuine but unconfirmed clue
+
+One more targeted follow-up to Codex (branch `codex-triple-products`, commit
+`d987efa`, merged into `zhenhao`), explicitly scoped to avoid repeating the
+earlier binned-covariate failure: that attempt binned continuous covariates
+into categories and blew up from sparse-cell quasi-separation (a 6-respondent
+`nightind` bin drove a coefficient to -0.815). This round tests **continuous**
+three-way product terms instead (`Price x z(covariate1) x z(covariate2)`,
+standardized, no binning) -- a fundamentally different risk profile, since
+there's no discrete cell to be sparse in. Also tested segment-specific
+covariate x price slopes as a second design, with segment respondent counts
+checked first (128/383/49/211/58/306 in the full training set -- the two
+smallest are comparable in size to the small K-means clusters flagged earlier
+as high-variance, so segment-specific results were treated cautiously even
+though they don't share the categorical sparse-bin mechanism). Independently
+reviewed the code and cross-checked every reported number against the raw
+generated CSVs in `data_processed/codex_triples/` -- exact match throughout,
+same clean result as the previous round.
+
+Screened three covariate pairs with income (age, mileage, night) in both
+joint (Price + inside) and atomic (price-only / inside-only) forms, plus one
+combined 6-term and one 20-term segment-slope model. Only income x mileage
+terms and the segment-mileage-slope model beat the single-split baseline;
+everything else (income x age, income x night, the other segment covariates,
+the 20-term combined segment model) was screen-negative and correctly not
+promoted to CV.
+
+**Best candidate: `Price x z(income) x z(mileage)`.** Single-split screen:
+1.157576 vs. m8trpg's 1.159681. Five-fold CV: mlogit alone improves
+1.147021 -> 1.146782 (+0.000239); blended into the *fixed* 0.80/0.20
+ensemble_v11 weight (not re-optimized -- the script hard-asserts it
+reproduces the official 1.145094 blend before comparing anything): 1.145094
+-> 1.144599 (+0.000495). The coefficient is directionally stable and negative
+in all 5 individual folds (-0.0541 to -0.0270) -- a real, consistent signal in
+the *parameter* -- but the *predictive* gain is not: 3 folds improve, 2
+worsen. Respondent-clustered bootstrap (2000 resamples): 95% CI
+**[-0.000689, 0.001660] -- crosses zero.** A re-optimized (rather than fixed)
+blend weight diagnostic pushes the point estimate slightly higher
+(0.000523) but is explicitly flagged in the write-up as optimistic since the
+weight was chosen on the same evaluated data -- doesn't change the
+conclusion. The joint Price+inside version of the same interaction is
+similar but slightly weaker (+0.000452 blend gain); the inside-only version
+is negligible (+0.000053).
+
+**Segment-specific mileage-x-price slopes: decisively harmful.** CV blend
+gain -0.002640, bootstrap CI [-0.005229, -0.000563] -- excludes zero on the
+harmful side, worse in 4 of 5 folds including a large fold-4 regression.
+Checked the fold-level coefficients specifically to rule out a repeat of the
+earlier categorical-model coefficient explosion: magnitudes stayed moderate,
+so this is ordinary high-variance overfitting from estimating several
+subgroup-specific slopes on modest per-segment samples, not the same failure
+mode as before -- a materially different (and less alarming, but still
+negative) way to fail.
+
+**Decision: not adopted, no submission made.** This is the most interesting
+single result of the whole modeling push -- a coefficient that is genuinely
+stable in sign and magnitude across every fold, consistent with a real (if
+weak) interaction where mileage's effect on price sensitivity depends on
+income. But stability of the *parameter* is not the same as a confirmed
+*predictive* gain, and the bootstrap CI on the actual score improvement
+crosses zero. Per the bar established after the ensemble-candidate review, a
+positive point estimate with a CI that merely crosses zero does not clear the
+threshold for a submission slot. Flagged as a clue worth revisiting only if
+independent evidence appears (e.g. from the report's residual analysis or a
+teammate's model), not as a validated improvement. `ensemble_v11` remains the
+best and current submission.
+
+**Where this leaves the modeling search.** Three consecutive, independently-
+verified rounds of genuinely new ideas -- a 4-way ranking/regularized-logit
+ensemble, an actual covariate-shift refit plus attribute-rank features, and
+now continuous higher-order interactions -- have each returned either a null
+result or a gain too small to distinguish from noise. Combined with the
+earlier multi-angle diagnostic (excellent calibration, no exploitable
+subgroup, xgboost unable to out-predict the logit), this is now a strong,
+repeatedly-tested case that `ensemble_v11` (CV 1.145, public 1.202) is at or
+very near the practical ceiling for legitimate, generalizable modeling on
+this dataset, given the ~5 days remaining before the competition closes
+(2026-08-01). Further effort is better spent on the report than on additional
+modeling rounds unless a genuinely new structural idea surfaces.
