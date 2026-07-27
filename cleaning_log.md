@@ -1532,3 +1532,53 @@ already prepared, given it is the only one to clear the baseline bar and the
 most structurally robust to outlier respondents. `submission_codex_mlp_v12_candidate.csv`
 is generated and ready; `ensemble_v11` remains the officially adopted model
 until a submission confirms or refutes this candidate.
+
+## 2026-07-28: MLP seed-bagging follow-up -- point estimate improves, interval widens
+
+Direct follow-up on the MLP candidate above, testing whether the same
+mechanism that helped xgboost seed-bagging (variance reduction on a
+*minority-weight* ensemble component) also helps here, since the MLP sits in
+the same structural role (small blend weight) that xgboost did. Branch
+`codex-mlp-seed-bagging`, commit `066ac0b`, merged into `zhenhao`. Increased
+the MLP's internal seed-averaging from 5 to 20, holding everything else
+frozen (architecture, 200-iteration cap, canonical folds, fold-cross-fitted
+weight selection). Independently verified the seed formula
+(`4821 + fold*100 + seed_index - 1`) makes the first 5 of the 20 seeds per
+fold mathematically identical to the original candidate's seeds -- confirmed
+by the cumulative 5-seed OOF reproducing the original to 2.22e-16, a true
+apples-to-apples extension rather than an independent re-randomization.
+Cross-checked every number in the write-up against the raw generated CSVs --
+exact match.
+
+**Result: instructive, not simply negative.** The MLP component alone
+improved substantially (1.190543 -> 1.168530 at 20 seeds, nearly monotonic
+along the learning curve). But the ensemble's respondent-bootstrap interval
+**widened rather than tightened** (95% CI width grew from 0.002421 at 5 seeds
+to 0.003339 at 20), and the direct paired comparison of 20-vs-5-seed blends
+has a 95% CI of [-0.000122, +0.001416] -- crossing zero, meaning 20 seeds is
+not established as better than 5.
+
+**The mechanism is verified, not just asserted.** As the MLP component gets
+better, the fold-cross-fitted weight selection (correctly, since it's
+choosing the loss-minimizing weight on held-out data) gives it MORE blend
+weight: 0.13-0.17 at 5 seeds rises to 0.20-0.26 at 20 seeds. More weight on a
+component that still has some idiosyncratic respondent-level error amplifies
+both its average benefit to the ensemble AND its contribution to the
+ensemble's respondent-to-respondent variance -- a real, coherent statistical
+trade-off (a "stronger but more polarizing" component), not a computational
+error. Confirmed by checking the actual fold weights at each seed count,
+which climb steadily as claimed.
+
+A methodologically important detail handled correctly: the learning curve
+shows 15 seeds gives the single best point estimate (crossfit 1.143073,
+slightly better than 20 seeds' 1.143139) -- but this was correctly **not**
+promoted, since it's only visible after inspecting the full 1-20 curve
+post hoc, exactly the kind of cherry-picking-after-the-fact this project has
+guarded against with every multiplicity correction applied all session.
+
+**Decision: no new candidate generated.** The original 5-seed
+`submission_codex_mlp_v12_candidate.csv` remains the recommended submission
+candidate -- more seed-averaging does not make it clearly better by the
+project's own standard, despite improving the point estimate. `ensemble_v11`
+remains officially adopted; the MLP candidate remains queued as the
+top-priority submission for the next available slot.

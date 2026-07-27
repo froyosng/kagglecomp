@@ -553,6 +553,20 @@ ordinary bootstrap bar and the most robust to outlier respondents.
 `ensemble_v11` remains the officially adopted model until a submission
 confirms or refutes this.
 
+**2026-07-28 follow-up (branch `codex-mlp-seed-bagging`, commit `066ac0b`):**
+tested whether averaging the MLP over more seeds (5 -> 20) improves it, since
+it plays the same minority-weight role that benefited from seed-bagging
+earlier (xgboost). Result: the component improves a lot (1.190543 -> 1.168530)
+and the point estimate improves too (gain 0.001305 -> 0.001956), but the
+bootstrap interval WIDENS instead of tightening (95% CI width 0.002421 ->
+0.003339), and the direct 20-vs-5-seed comparison CI crosses zero
+([-0.000122, +0.001416]). Verified mechanism: more weight naturally flows to
+the improving MLP under fold-cross-fitted selection (0.13-0.17 -> 0.20-0.26),
+which amplifies both its benefit and its respondent-level variance
+contribution -- a real trade-off, not a bug. **No new candidate generated;
+the original 5-seed `submission_codex_mlp_v12_candidate.csv` remains the
+recommended submission** -- more seeds do not make it clearly better.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
