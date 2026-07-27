@@ -224,10 +224,15 @@ actually improving the score came back null once properly validated.**
   shift confirmed.** AUC 0.634 distinguishing train/test respondents by
   covariates alone; driven mainly by income (test skews ~33% higher at the
   median, with top income brackets 3x+ over-represented). Partially explains
-  the growing CV-to-public gap; not yet turned into a validated fix (a
-  distribution-shift correction can't be honestly scored via in-training CV,
-  and a simpler univariate income-tercile check gave an ambiguous, not
-  clearly-actionable signal -- see cleaning_log.md point 4).
+  the growing CV-to-public gap. A simpler univariate income-tercile check gave
+  an ambiguous, not clearly-actionable signal (cleaning_log.md point 4). An
+  actual weighted-likelihood refit was later tried (2026-07-27, Shimodaira-style
+  density-ratio reweighting of the mlogit fit, not just a reweighted
+  evaluation) and came back decisively negative -- every nonzero weighting
+  strength made the model worse on an honest target-weighted held-out loss,
+  bootstrap CI excluding zero on the harmful side. See "Resolved: covariate-
+  shift refit and attribute-rank experiments" below. The shift itself remains
+  real and report-worthy; it's just not fixable via this particular correction.
 - **Design/block structure (`R/design_fingerprint_check.R`): a real, novel
   structural fact, but not exploitable.** The conjoint design is heavily
   blocked (~296 distinct designs per task position, ~3.8 respondents/design),
@@ -375,6 +380,39 @@ gap even when CV improves (see the gap table above) -- exactly the wrong
 direction to bet a submission slot on for an unconfirmed CV gain. All 5
 `R/codex_*.R` scripts and `codex_findings.md` are kept in the repo for
 reproducibility, same as every other tested-but-not-adopted model here.
+
+## Resolved: covariate-shift refit and attribute-rank experiments (2026-07-27) -- both negative
+Follow-up ask to Codex (branch `codex-shift-ranks`, commit `51ad3d8`, merged
+into `zhenhao`): two specific, previously-untested leads rather than another
+generic optimization pass -- an actual weighted-likelihood refit for the
+confirmed income/covariate shift (only its *evaluation* had been reweighted
+before, never a retrain), and extending the price_gap/is_cheapest/is_dearest
+rank mechanism (the biggest single win of the session) to the other 19
+attributes. Independently reviewed the code and cross-checked every reported
+number against the raw generated CSVs before accepting the write-up -- both
+held up exactly, no corrections needed this time.
+
+- **Importance-weighted refit: decisively negative.** A genuine density-ratio
+  weighted-MLE refit of mlogit_m8trpg (Shimodaira 2000), evaluated against a
+  fixed, honest target-weighted held-out loss. `alpha=0` exactly reproduces the
+  known baseline (confirms the machinery is correct); every nonzero weighting
+  strength makes the model worse, monotonically, in all 5 folds. At the
+  gentlest setting tested, bootstrap 95% CI **[-0.002614, -0.000422] --
+  excludes zero on the harmful side.** Effective sample size collapses under
+  weighting (908 -> ~521 of 908 respondents at full strength), and the
+  variance cost outweighs any targeting benefit. The shift itself is still
+  real; this particular correction just doesn't work.
+- **Attribute min/max rank flags: null, didn't replicate.** Single-split screen
+  looked promising (-0.000803) but reversed under 5-fold CV (+0.000254, worse
+  in 4/5 folds, bootstrap CI [-0.001138, 0.000572] crossing zero). Likely
+  cause: unlike price, most attribute codes are categorical labels without a
+  stable cardinal ordering, so min/max comparisons on them aren't as
+  meaningful.
+
+**Not adopted; no submission made.** Closes out both leads identified as
+genuinely open after the ensemble-candidate review above -- `ensemble_v11`
+remains the best and current submission. Full detail in `cleaning_log.md`,
+2026-07-27, and `codex_shift_rank_findings.md`.
 
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).

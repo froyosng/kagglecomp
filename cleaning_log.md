@@ -1101,3 +1101,75 @@ reproducibility/transparency, consistent with every other tested-but-not-adopted
 model in this project (task-fatigue latent class, stacking, K-means personas,
 design-cell shrinkage, etc.) -- a well-executed, honestly-reported null result is
 still worth keeping on record.
+
+## 2026-07-27: Covariate-shift refit and attribute-rank experiments (both negative)
+
+Asked Codex to chase two specific, previously-untested leads rather than another
+generic "optimize more" pass, given how much ground the project had already
+covered: (1) an actual weighted-likelihood refit targeting the confirmed
+train-test income/covariate shift (AUC 0.634) -- everything tried against that
+shift so far had only reweighted the *evaluation* of the existing fit, never
+retrained anything; and (2) extending the price_gap/is_cheapest/is_dearest
+choice-set-rank mechanism (the single biggest confirmed win of the session) to
+the other 19 attributes, since a *sum*-based version of "relative feature load"
+had been tried and was noise, but the *rank*-based version specifically was
+never tested. Work landed on branch `codex-shift-ranks` (commit `51ad3d8`,
+merged into `zhenhao`) as 3 new scripts + `codex_shift_rank_findings.md`;
+nothing existing was touched. Independently reviewed both experiments' code and
+cross-checked every reported number against the raw generated CSVs in
+`data_processed/codex_shift/` (gitignored but present on disk from the actual
+run) before accepting the write-up.
+
+**1. Importance-weighted refit -- decisively negative, not just null.** Fit a
+respondent-level logistic domain classifier (same 15 covariates as
+`R/adversarial_validation.R`) to distinguish training-fold respondents from
+actual test respondents, converted its output to a density ratio via the
+standard Bayes'-rule identity (`p(test|x)/(1-p(test|x)) * n_source/n_target`),
+capped it at 20 and mean-normalized it, then used `ratio^alpha` as `mlogit`
+case weights for alpha in {0, 0.25, 0.5, 0.75, 1} -- a genuine weighted-MLE
+refit (Shimodaira 2000), not a reweighted evaluation. Crucially, each fold's
+evaluation weights were estimated by a classifier that excludes that fold's own
+respondents from its source class (no self-referential leakage), and every
+alpha was scored against the *same* full-strength (alpha=1) target-weighted
+held-out loss, so only the fit itself varies across the comparison. Verified
+`alpha=0` exactly reproduces the known baseline (1.159681 single-split /
+1.147021 CV) before trusting anything else -- confirms the refit machinery
+itself is correct. Result: every nonzero alpha makes both ordinary and
+target-weighted loss worse, monotonically, in all 5 folds individually. At the
+gentlest setting tested (alpha=0.25), the respondent-clustered, importance-
+weighted bootstrap (Hajek ratio estimator, matching how the weighted mean
+itself is computed) puts the loss vs. baseline at -0.001416, **95% CI
+[-0.002614, -0.000422] -- excludes zero on the harmful side**, not just an
+unconfirmed gain but a confirmed harm. Re-optimizing the mlogit/xgboost blend
+weight per alpha doesn't rescue it (blend CI [-0.001398, -0.000276], same
+story). Cause: capping/normalizing the ratio still costs real effective sample
+size (908 -> ~521 of 908 respondents at alpha=1), and a finite parametric
+choice model pays a variance price for fitting a sparser, reweighted sample
+that outweighs any targeting benefit. This doesn't contradict the confirmed
+covariate shift itself -- it shows this specific, carefully-implemented
+correction makes the model worse on its own honest target-risk proxy, closing
+off the one previously-open, actually-untested lever from the covariate-shift
+diagnostic.
+
+**2. Attribute min/max rank flags -- null, didn't replicate.** Added 38 terms
+(min/max indicator per attribute among the 3 inside alternatives, ties keep
+multiple flags) to m8trpg. An all-4-alternative version was also tried and is
+computationally singular (alt 4's all-zero profile recreates the known
+inside/opt-out identification issue) -- correctly discarded rather than
+regularized around. The inside-only version looked promising on the single
+split (1.158879 vs. 1.159681, -0.000803) but reversed under 5-fold CV
+(1.147275 vs. 1.147021, +0.000254, worse in 4 of 5 folds); bootstrap 95% CI
+[-0.001138, 0.000572] crosses zero with only 26.7% of resamples favoring it.
+Plausible explanation, and an important limit on the price-rank analogy: price
+codes are ordered with a stable economic direction, but most attribute level
+codes are categorical labels without a consistent cardinal ordering, so
+min/max comparisons on them can encode arbitrary rather than meaningful splits.
+The mechanism that won for price doesn't transfer automatically just because
+it's the same mathematical operation.
+
+**Decision: neither adopted, no submission made.** Closes out both leads
+identified as genuinely untried after the ensemble-candidate review above. The
+project has now tested an actual fix (not just a diagnostic) for the confirmed
+covariate shift, and the natural extension of its biggest single win, and both
+came back negative under the same CV + respondent-bootstrap standard used
+throughout. `ensemble_v11` remains the best and current submission.
