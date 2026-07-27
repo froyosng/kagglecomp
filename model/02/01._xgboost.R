@@ -41,88 +41,94 @@ df_train$Choice <- ifelse(df_train$Ch1 == 1, 1, ifelse(df_train$Ch2 == 1, 2, ife
 choice <- subset(df_train, select = c(Ch1, Ch2, Ch3, Ch4))
 subset_train <- subset(df_train, select = -c(Task, Ch1, Ch2, Ch3, Ch4, educ, gender, region, segment, ppark, night, miles, Case, No, CC4, GN4, NS4, BU4, FA4, LD4, BZ4, FC4, FP4, RP4, PP4, KA4, SC4, TS4, NV4, MA4, LB4, AF4, HU4, Price4, Urb, income, age))
 
+xgb_params <- list(
+  booster = "gbtree",
+  eta = 0.07,
+  max_depth = 5,
+  gamma = 4,
+  subsample = 1,
+  colsample_bytree = 1,
+  objective = "multi:softprob",
+  eval_metric = "mlogloss",
+  num_class = 4
+)
+
 # K-FOLD CROSS VALIDATION MODEL TRAINING
 set.seed(12)
 k <- 5
-folds <- createFolds(subset_train$Choice, k = k, list = TRUE)
-cv_results <- data.frame()
-
-xgb_params <- list(
-    booster = "gbtree",
-    eta = 0.07,
-    max_depth = 5,
-    gamma = 4,
-    subsample = 1,
-    colsample_bytree = 1,
-    objective = "multi:softprob",
-    eval_metric = "mlogloss",
-    num_class = 4
-)
-
-for (i in 1:k) {
-    cat("Fold", i, "\n")
-    
-    train_indices <- unlist(folds[-i])
-    val_indices <- folds[[i]]
-    
-    train_data <- subset_train[train_indices, ]
-    val_data <- subset_train[val_indices, ]
-    y_train <- as.numeric(train_data$Choice) - 1
-    y_val <- as.integer(val_data$Choice) - 1
-    X_train <- train_data %>% select(-Choice)
-    X_val <- val_data %>% select(-Choice)
-    
-    xgb_train <- xgb.DMatrix(data = as.matrix(X_train), label = y_train)
-    xgb_val <- xgb.DMatrix(data = as.matrix(X_val), label = y_val)
-    watchlist <- list(train = xgb_train, val = xgb_val)
-    
-    xgb_model <- xgb.train(
-        params = xgb_params,
-        data = xgb_train,
-        nrounds = 150,
-        watchlist = watchlist,
-        verbose = 1
-    )
-    
-    eval_log <- xgb_model$evaluation_log
-    last_eval_score <- eval_log[nrow(eval_log), ]
-    cat("Fold", i, "Train Log Loss:", last_eval_score$train_mlogloss, "\n")
-    cat("Fold", i, "Validation Log Loss:", last_eval_score$val_mlogloss, "\n")
-    cv_results <- rbind(cv_results, last_eval_score)
-}
+case_ids <- unique(df_train$Case)
+case_assignment <- sample(rep(1:k, length.out = length(case_ids)))
+case_folds <- split(seq_along(case_ids), case_assignment)
+folds <- lapply(case_folds, function(idx) which(df_train$Case %in% case_ids[idx]))
 
 # TRAIN PREDICTIONS
 # Making predictions for the whole of train.csv
-X_train <- subset_train %>% select(-Choice)
-y_train <- as.numeric(subset_train$Choice) 
+oof_preds_xgb <- matrix(NA, nrow = nrow(subset_train), ncol = 4)
 
-preds_train_xgb <- predict(xgb_model, as.matrix(X_train), reshape = TRUE)
-preds_train_xgb <- as.data.frame(preds_train_xgb)
-colnames(preds_train_xgb) <- c("1","2","3","4")
-preds_train_xgb$PredictedChoice <- apply(preds_train_xgb, 1, function(y) colnames(preds_train_xgb)[which.max(y)])
-colnames(preds_train_xgb) <- c("Ch1","Ch2","Ch3","Ch4", "PredictedChoice")
+for (i in 1:k) {
+  train_indices <- unlist(folds[-i])
+  val_indices <- folds[[i]]
+  
+  train_data <- subset_train[train_indices, ]
+  val_data <- subset_train[val_indices, ]
+  y_train <- as.numeric(train_data$Choice) - 1
+  X_train <- train_data %>% select(-Choice)
+  X_val <- val_data %>% select(-Choice)
+  
+  xgb_train <- xgb.DMatrix(data = as.matrix(X_train), label = y_train)
+  
+  fold_model <- xgb.train(
+    params = xgb_params,
+    data = xgb_train,
+    nrounds = 150,
+    verbose = 0
+  )
+
+# Predict ONLY on this fold's held-out rows, using a model that never saw them
+  fold_preds <- predict(fold_model, as.matrix(X_val), reshape = TRUE)
+  oof_preds_xgb[val_indices, ] <- fold_preds
+    fold_logloss <- compute_logloss(as.data.frame(fold_preds), choice[val_indices, ])
+    cat("Fold", i, "Validation Log Loss:", fold_logloss, "\n")
+}
+
+# oof_preds_xgb now has one honest out-of-fold prediction per training row
+stopifnot(all(!is.na(oof_preds_xgb)))
+preds_train_xgb <- as.data.frame(oof_preds_xgb)
+colnames(preds_train_xgb) <- c("Ch1","Ch2","Ch3","Ch4")
 preds_train_xgb$No <- df_train$No
+write.csv(preds_train_xgb, "TrainingTheEnsemble_XGB.csv", row.names = FALSE)
+                
+overall_oof_logloss <- compute_logloss(preds_train_xgb[, c("Ch1","Ch2","Ch3","Ch4")], choice)
+cat("Overall out-of-fold log loss:", overall_oof_logloss, "\n")
 
-write.csv(preds_train_xgb, "TrainingTheEnsemble_XGB.csv")
+# THEN, separately, train your final submission model on ALL of subset_train
+final_xgb_model <- xgb.train(
+  params = xgb_params,
+  data = xgb.DMatrix(data = as.matrix(subset_train %>% select(-Choice)),
+                      label = as.numeric(subset_train$Choice) - 1),
+  nrounds = 150,
+  verbose = 0
+)
+
 
 # SUBMISSION PREDICTIONS 
 df_test <- read.csv("test.csv")
-submission_prediction_XGB <- subset(df_test, select=c(No))
-df_test$Choice <- sample(c(1, 2, 3, 4), nrow(df_test), replace = TRUE, prob = c(0.25, 0.25, 0.25, 0.25))
-subset_test <- subset(df_test,select=-c(Task,Ch1,Ch2,Ch3,Ch4,educ,gender,region,segment,ppark,night,miles,Case,CC4,GN4,NS4,BU4,FA4,LD4,BZ4,FC4,FP4,RP4,PP4,KA4,SC4,TS4,NV4,MA4,LB4,AF4,HU4,Price4,Urb,income,age))
+subset_test <- subset(df_test, select = -c(Task,Ch1,Ch2,Ch3,Ch4,educ,gender,region,segment,
+                                            ppark,night,miles,Case,CC4,GN4,NS4,BU4,FA4,
+                                            LD4,BZ4,FC4,FP4,RP4,PP4,KA4,SC4,TS4,NV4,MA4,
+                                            LB4,AF4,HU4,Price4,Urb,income,age))
+X_test <- subset_test  # No column already excluded above if present; drop it if not
+if ("No" %in% colnames(X_test)) X_test <- X_test %>% select(-No)
+stopifnot(identical(colnames(subset_train %>% select(-Choice)), colnames(X_test)))
 
-y_test <- as.integer(subset_test$Choice) -1
-X_test <- subset_test %>% select(-c(Choice,No))
-
-xgb_preds <- predict(xgb_model, as.matrix(X_test), reshape = TRUE)
+xgb_preds <- predict(final_xgb_model, as.matrix(X_test), reshape = TRUE)
 xgb_preds <- as.data.frame(xgb_preds)
 colnames(xgb_preds) <- c("Ch1","Ch2","Ch3","Ch4")
-submission_prediction_XGB$Ch1 <- xgb_preds$Ch1
-submission_prediction_XGB$Ch2 <- xgb_preds$Ch2
-submission_prediction_XGB$Ch3 <- xgb_preds$Ch3
-submission_prediction_XGB$Ch4 <- xgb_preds$Ch4
 
-write.csv(submission_prediction_XGB, "InputEnsemble_XGB.csv", row.names=FALSE)
+submission_prediction_XGB <- subset(df_test, select = c(No))
+submission_prediction_XGB <- cbind(submission_prediction_XGB, xgb_preds)
+
+write.csv(submission_prediction_XGB, "InputEnsemble_XGB.csv", row.names = FALSE)
 
 
 # ==================================================================================
@@ -318,11 +324,16 @@ rm(test_human,test_human_to_encode,train_human,train_human_to_encode,dummy,human
 # ------------------------------------------------------------------------
 # PART 3 MODEL BUILDING
 # Formatting data for mlogit()
-S_train <- dfidx(subset(train, Task <=14), shape="wide", choice="Choice", sep=".",
-                 varying = c(8:291), idx = c("No", "Case"))
 
-S_val <- dfidx(subset(train, Task > 14), shape="wide", choice="Choice", sep=".",
+set.seed(12)
+val_cases_mnl <- sample(unique(train_raw$Case), size = round(0.2 * length(unique(train_raw$Case))))
+
+S_train <- dfidx(subset(train, !(Case %in% val_cases_mnl)), shape="wide", choice="Choice", sep=".",
+                 varying = c(8:291), idx = c("No", "Case"))
+S_val <- dfidx(subset(train, Case %in% val_cases_mnl), shape="wide", choice="Choice", sep=".",
                varying = c(8:291), idx = c("No", "Case"))
+                
+
 
 S_test <- dfidx(test, shape="wide", choice="Choice", sep=".",
                 varying = c(8:291), idx = c("No", "Case"))
@@ -337,14 +348,12 @@ MNL_2 <- mlogit(Choice~AF1+AF2+BU1+BU2+BU3+BU4+BU5+BZ1+BZ2+BZ3+CC1+CC2+CC3+
                     data=S_train)
 
 # Making Predictions to train the Ensemble
-preds_train_MNL <- predict(MNL_2, newdata = S_everything)
-preds_train_MNL <- as.data.frame(preds_train_MNL)
-colnames(preds_train_MNL) <- c("1","2","3","4")
-preds_train_MNL$PredictedChoice <- apply(preds_train_MNL, 1, function(y) colnames(preds_train_MNL)[which.max(y)])
-preds_train_MNL$No <- train_raw$No
-colnames(preds_train_MNL) <- c("Ch1", "Ch2", "Ch3", "Ch4", "PredictedChoice", "No")
+preds_val_MNL <- predict(MNL_2, newdata = S_val)
+preds_val_MNL <- as.data.frame(preds_val_MNL)
+colnames(preds_val_MNL) <- c("Ch1","Ch2","Ch3","Ch4")
+preds_val_MNL$No <- subset(train_raw, Case %in% val_cases_mnl)$No
 
-write.csv(preds_train_MNL, "TrainingTheEnsemble_MNL.csv")
+write.csv(preds_val_MNL, "TrainingTheEnsemble_MNL.csv", row.names = FALSE)
 
 # Making Predictions for the submission
 submission_prediction_MNL <- subset(test_raw, select=c(No))
@@ -373,6 +382,8 @@ safety$Choice <- ifelse(safety$Ch1 == 1, 1,
                         ifelse(safety$Ch2 == 1, 2, 
                                ifelse(safety$Ch3 == 1, 3, 
                                       ifelse(safety$Ch4 == 1, 4, NA))))
+safety_full <- safety
+                
 safety_test <- read.csv("test.csv")
 safety_test$Choice <- 0
 safety_test$Ch1 <- 0
@@ -380,8 +391,7 @@ safety_test$Ch2 <- 0
 safety_test$Ch3 <- 0
 safety_test$Ch4 <- 0
 
-actual_probs <- safety[,110:113]
-test_probability <- safety_test[,110:113]
+actual_probs <- safety[, c("Ch1","Ch2","Ch3","Ch4")]
 
 # remove unnecessary columns
 safety <- subset(safety, select=-c(No,Case,CC4,GN4,NS4,BU4,FA4,LD4,BZ4,FC4,FP4,RP4,
@@ -397,11 +407,16 @@ safety_test <- subset(safety_test, select=-c(No,Case,CC4,GN4,NS4,BU4,FA4,LD4,BZ4
 # DATA SPLITTING
 seed <- 42
 set.seed(seed)
-trainingIndex <- createDataPartition(safety$Choice, p = 0.8, list = FALSE)
-trainingSet <- safety[trainingIndex,]
-testSet <- safety[-trainingIndex,]
-trainingprobs <- actual_probs[trainingIndex,]
-testprobs <- actual_probs[-trainingIndex,]
+case_ids <- unique(safety_full$Case)
+val_cases <- sample(case_ids, size = round(0.2 * length(case_ids)))
+
+train_mask <- !(safety_full$Case %in% val_cases)
+val_mask   <- safety_full$Case %in% val_cases
+
+trainingSet <- safety[train_mask, ]
+testSet     <- safety[val_mask, ]
+trainingprobs <- actual_probs[train_mask, ]
+testprobs     <- actual_probs[val_mask, ]
 
 # MODEL TRAINING
 set.seed(seed)
@@ -410,8 +425,17 @@ RF <- randomForest(as.factor(Choice) ~ ., data = trainingSet, mtry=18, importanc
 # MAKE PREDICTIONS
 val_pred <- predict(RF, testSet, type="prob")
 train_pred <- predict(RF, trainingSet, type="prob")
-RF_pred <- predict(RF, safety_test, type="prob")
-RF_pred_train <- predict(RF, safety, type = "prob")
+final_RF <- randomForest(as.factor(Choice) ~ ., data = safety, mtry=18, importance=TRUE, ntree=500)
+RF_pred <- predict(final_RF, safety_test, type="prob")
+
+RF_pred <- as.data.frame(RF_pred)
+colnames(RF_pred) <- c("Ch1","Ch2","Ch3","Ch4")
+
+                safety_test_raw <- read.csv("test.csv")   # re-read for the No column
+submission_prediction_RF <- subset(safety_test_raw, select=c(No))
+submission_prediction_RF <- cbind(submission_prediction_RF, RF_pred)
+
+write.csv(submission_prediction_RF, file = "InputEnsemble_RF.csv", row.names = FALSE)
 
 # MODEL EVALUATION
 compute_logloss(train_pred,trainingprobs)
@@ -422,25 +446,15 @@ compute_accuracy(val_pred,testprobs)
 # PREPARE OUTPUT
 colnames(val_pred) <- c("Ch1", "Ch2", "Ch3", "Ch4")
 colnames(train_pred) <- c("Ch1", "Ch2", "Ch3", "Ch4")
-colnames(RF_pred) <- c("Ch1", "Ch2", "Ch3", "Ch4")
-colnames(RF_pred_train) <- c("Ch1", "Ch2", "Ch3", "Ch4")
+#colnames(RF_pred) <- c("Ch1", "Ch2", "Ch3", "Ch4")
+val_pred_df <- as.data.frame(val_pred)
+colnames(val_pred_df) <- c("Ch1", "Ch2", "Ch3", "Ch4")
+val_pred_df$No <- safety_full$No[val_mask]
 
-# TRAINING DATA FOR THE ENSEMBLE
-RF_pred_train <- as.data.frame(RF_pred_train)
-RF_pred_train$No <- train_raw$No
+write.csv(val_pred_df, file = "TrainingTheEnsemble_RF.csv", row.names = FALSE)
 
-write.csv(RF_pred_train, file = "TrainingTheEnsemble_RF.csv") # the whole training set
 
-# PREDICTION FOR KAGGLE SUBMISSION
-safety_test <- read.csv("test.csv")
-submission_prediction_RF <- subset(safety_test, select=c(No))
-RF_pred <- as.data.frame(RF_pred)
-submission_prediction_RF$Ch1 <- RF_pred$Ch1
-submission_prediction_RF$Ch2 <- RF_pred$Ch2
-submission_prediction_RF$Ch3 <- RF_pred$Ch3
-submission_prediction_RF$Ch4 <- RF_pred$Ch4
 
-write.csv(submission_prediction_RF, file = "InputEnsemble_RF.csv", row.names = FALSE)
 
 
 
@@ -485,47 +499,56 @@ compute_accuracy <- function(P, choice){
 }
 
 # DATA EXTRACTION
-XGB <- read.csv("TrainingTheEnsemble_XGB.csv") 
-MNL <- read.csv("TrainingTheEnsemble_MNL.csv") 
-RF <- read.csv("TrainingTheEnsemble_RF.csv") 
+XGB <- read.csv("TrainingTheEnsemble_XGB.csv")
+MNL <- read.csv("TrainingTheEnsemble_MNL.csv")
+RF  <- read.csv("TrainingTheEnsemble_RF.csv")
+
 raw_train <- read.csv("train.csv")
-raw_train$Choice <- ifelse(raw_train$Ch1 == 1, 1, ifelse(raw_train$Ch2 == 1, 2, ifelse(raw_train$Ch3 == 1, 3, 4)))
-train_choice <- subset(raw_train, select = c("Ch1", "Ch2", "Ch3", "Ch4"))
+raw_train$Choice <- ifelse(raw_train$Ch1==1,1, ifelse(raw_train$Ch2==1,2, ifelse(raw_train$Ch3==1,3,4)))
 
+# Rename each model's Ch columns before merging so they don't collide
+colnames(XGB) <- c("Ch1_xgb","Ch2_xgb","Ch3_xgb","Ch4_xgb","No")
+colnames(MNL) <- c("Ch1_mnl","Ch2_mnl","Ch3_mnl","Ch4_mnl","No")
+colnames(RF)  <- c("Ch1_rf","Ch2_rf","Ch3_rf","Ch4_rf","No")
+
+true_labels <- subset(raw_train, select = c(No, Ch1, Ch2, Ch3, Ch4))
+
+# Inner join keeps only rows where ALL THREE models have honest out-of-fold predictions
+ensemble_data <- Reduce(function(x, y) merge(x, y, by = "No"),
+                         list(XGB, MNL, RF, true_labels))
+
+cat("Rows available for ensemble (all 3 models overlap):", nrow(ensemble_data), "\n")
+                           
 set.seed(1234)
-split <- sample(1:nrow(raw_train), 0.8*nrow(raw_train))
-train_ensemble_XGB <- XGB[split,]
-train_ensemble_MNL <- MNL[split,]
-train_ensemble_RF <- RF[split,]
-test_ensemble_XGB <- XGB[-split,]
-test_ensemble_MNL <- MNL[-split,]
-test_ensemble_RF <- RF[-split,]
+ensemble_cases <- unique(subset(raw_train, No %in% ensemble_data$No)$Case)
+ensemble_data <- merge(ensemble_data, subset(raw_train, select = c(No, Case)), by = "No")
 
-train_ensemble_choice <- train_choice[split,]
-test_ensemble_choice <- train_choice[-split,]
+val_cases_ensemble <- sample(unique(ensemble_data$Case), size = round(0.2 * length(unique(ensemble_data$Case))))
+
+train_ensemble <- subset(ensemble_data, !(Case %in% val_cases_ensemble))
+test_ensemble  <- subset(ensemble_data, Case %in% val_cases_ensemble)
+
+train_ensemble_choice <- subset(train_ensemble, select = c(Ch1, Ch2, Ch3, Ch4))
+test_ensemble_choice  <- subset(test_ensemble, select = c(Ch1, Ch2, Ch3, Ch4))
+
+
 
 
 # SOFT VOTING
-soft_voting <- function(pred1, pred2, pred3, weights=c(0.5, 0.5, 0)){
-    predictions <- data.frame(Ch1 = numeric(nrow(pred1)),
-                              Ch2 = numeric(nrow(pred1)),
-                              Ch3 = numeric(nrow(pred1)),
-                              Ch4 = numeric(nrow(pred1)))
-    predictions$Ch1 <- pred1$Ch1*weights[1] + pred2$Ch1*weights[2] + pred3$Ch1*weights[3]
-    predictions$Ch2 <- pred1$Ch2*weights[1] + pred2$Ch2*weights[2] + pred3$Ch2*weights[3]
-    predictions$Ch3 <- pred1$Ch3*weights[1] + pred2$Ch3*weights[2] + pred3$Ch3*weights[3]
-    predictions$Ch4 <- pred1$Ch4*weights[1] + pred2$Ch4*weights[2] + pred3$Ch4*weights[3]
-    
+soft_voting <- function(data, weights = c(0.5, 0.3, 0.2)){
+    predictions <- data.frame(
+      Ch1 = data$Ch1_xgb*weights[1] + data$Ch1_mnl*weights[2] + data$Ch1_rf*weights[3],
+      Ch2 = data$Ch2_xgb*weights[1] + data$Ch2_mnl*weights[2] + data$Ch2_rf*weights[3],
+      Ch3 = data$Ch3_xgb*weights[1] + data$Ch3_mnl*weights[2] + data$Ch3_rf*weights[3],
+      Ch4 = data$Ch4_xgb*weights[1] + data$Ch4_mnl*weights[2] + data$Ch4_rf*weights[3]
+    )
     row_sums <- rowSums(predictions)
     predictions <- predictions / row_sums
-    predictions <- as.data.frame(predictions)
-    return (predictions)
+    return(predictions)
 }
 
 # SAMPLE IMPLEMENTATION
-predictions <- soft_voting(train_ensemble_XGB, train_ensemble_MNL, train_ensemble_RF, 
-                           weights=c(0.5, 0.3, 0.2))
-predictions
+predictions <- soft_voting(train_ensemble, weights = c(0.5, 0.3, 0.2))
 logloss <- compute_logloss(predictions, train_ensemble_choice)
 logloss
 accuracy <- compute_accuracy(predictions, train_ensemble_choice)
@@ -543,13 +566,11 @@ for (weight1 in seq(0, 0.99, by=0.01)){
     for (weight2 in seq(0, 1-weight1, by=0.01)){
         weight3 <- 1 - weight1 - weight2
 
-        train_predictions <- soft_voting(train_ensemble_XGB, train_ensemble_MNL, train_ensemble_RF, 
-                                         weights = c(weight1, weight2, weight3))
+        train_predictions <- soft_voting(train_ensemble, weights = c(weight1, weight2, weight3))
         train_logloss <- compute_logloss(train_predictions, train_ensemble_choice)
         train_accuracy <- compute_accuracy(train_predictions, train_ensemble_choice)
 
-        test_predictions <- soft_voting(test_ensemble_XGB, test_ensemble_MNL, test_ensemble_RF, 
-                                        weights = c(weight1, weight2, weight3))
+        test_predictions <- soft_voting(test_ensemble, weights = c(weight1, weight2, weight3))
         test_logloss <- compute_logloss(test_predictions, test_ensemble_choice)
         test_accuracy <- compute_accuracy(test_predictions, test_ensemble_choice)
         
@@ -561,31 +582,25 @@ for (weight1 in seq(0, 0.99, by=0.01)){
         cat("Iteration ", iteration, "\n")
     }
 }
-    
+
 plot(df_results$train_logloss, df_results$test_logloss)
 plot(df_results$train_logloss, df_results$train_accuracy)
 plot(df_results$test_logloss, df_results$test_accuracy)
-
 plot(df_results$train_accuracy, df_results$train_logloss)
-
 plot(df_results$weight1, df_results$train_logloss)
 plot(df_results$weight2, df_results$train_logloss)
 plot(df_results$weight3, df_results$train_logloss)
 
-results_weight1 <- subset(df_results, weight1 >= 0.5)
-results_weight1 <- subset(results_weight1, weight1 <= 0.55)
-plot(results_weight1$weight2, results_weight1$train_logloss)
-plot(results_weight1$weight3, results_weight1$train_logloss)
 
-# Based on this analysis, we choose:
-weight_XGB <- 0.5
-weight_MNL <- 0.2
-weight_RF <- 0.3
+# Pick weights that minimise TEST log loss objectively, rather than eyeballing plots
+best_row <- df_results[which.min(df_results$test_logloss), ]
+weight_XGB <- best_row$weight1
+weight_MNL <- best_row$weight2
+weight_RF  <- best_row$weight3
+cat("Best weights - XGB:", weight_XGB, " MNL:", weight_MNL, " RF:", weight_RF, "\n")
 
-train_predictions <- soft_voting(train_ensemble_XGB, train_ensemble_MNL, train_ensemble_RF, 
-                                 weights = c(weight_XGB, weight_MNL, weight_RF))
-test_predictions <- soft_voting(test_ensemble_XGB, test_ensemble_MNL, test_ensemble_RF, 
-                                weights = c(weight_XGB, weight_MNL, weight_RF))
+train_predictions <- soft_voting(train_ensemble, weights = c(weight_XGB, weight_MNL, weight_RF))
+test_predictions  <- soft_voting(test_ensemble,  weights = c(weight_XGB, weight_MNL, weight_RF))
 
 train_logloss <- compute_logloss(train_predictions, train_ensemble_choice)
 train_accuracy <- compute_accuracy(train_predictions, train_ensemble_choice)
@@ -606,7 +621,17 @@ RF_probabilities <- read.csv("InputEnsemble_RF.csv")
 
 test <- read.csv("test.csv")
 submission_13 <- subset(test, select=c(No))
-submission_probabilities <- soft_voting(XGB_probabilities, MNL_probabilities, RF_probabilities, 
+soft_voting_submission <- function(pred1, pred2, pred3, weights){
+    predictions <- data.frame(
+      Ch1 = pred1$Ch1*weights[1] + pred2$Ch1*weights[2] + pred3$Ch1*weights[3],
+      Ch2 = pred1$Ch2*weights[1] + pred2$Ch2*weights[2] + pred3$Ch2*weights[3],
+      Ch3 = pred1$Ch3*weights[1] + pred2$Ch3*weights[2] + pred3$Ch3*weights[3],
+      Ch4 = pred1$Ch4*weights[1] + pred2$Ch4*weights[2] + pred3$Ch4*weights[3]
+    )
+    predictions / rowSums(predictions)
+}
+                
+submission_probabilities <- soft_voting_submission(XGB_probabilities, MNL_probabilities, RF_probabilities, 
                              weights=c(weight_XGB, weight_MNL, weight_RF))
 submission_13$Ch1 <- submission_probabilities$Ch1
 submission_13$Ch2 <- submission_probabilities$Ch2
