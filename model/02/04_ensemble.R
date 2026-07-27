@@ -178,4 +178,4 @@ submission_13$Ch2 <- submission_probabilities$Ch2
 submission_13$Ch3 <- submission_probabilities$Ch3
 submission_13$Ch4 <- submission_probabilities$Ch4
 
-write.csv(submission_13, "0802_submission13_ENSEMBLE_1.csv", row.names = FALSE)
+write.csv(submission_13, "submission_ensemble1.csv", row.names = FALSE)
