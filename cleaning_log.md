@@ -873,3 +873,65 @@ sparsity case, and not one this project has enough evidence to act on yet (one
 flagged bracket confirming, one contradicting, on a modest sample). Not implementing
 a speculative nonlinear-income respecification from this alone; logging it as solid,
 nuanced report material for the public-vs-private section instead.
+
+## 2026-07-27: Closing the income-shift and 1.187 investigation with proper uncertainty
+
+A second round of external-reviewer feedback pushed for more statistical rigor on
+three fronts: a log-transformed income model test, a properly respondent-clustered
+standard error for judging the competing team's 1.187 score, and a cleaner
+(univariate, not conflated-with-other-covariates) income-weighted decomposition with
+an effective-sample-size check and bootstrap CIs. All three were worth doing and
+closed the question more solidly than the earlier pass.
+
+**Model test: log(1+income) instead of raw linear income -- null (`R/test_log_income.R`).**
+Motivated by the (correct, standalone) observation that income is likely right-skewed
+and a raw linear z-score could give undue leverage to extreme values -- independent
+of the separate (incorrect) claim that our interactions use binned income; they use
+continuous `incomea` already, confirmed twice now. Single-split result: 1.1601 vs the
+confirmed base's 1.159681 -- a negligible +0.0004, clearly null. Makes sense in
+hindsight given the per-bracket picture below: the weakness (if real) is narrow and
+bracket-specific, not a broad "extreme values dominate" problem a global reshaping
+would fix.
+
+**Respondent-clustered public-sample noise (`R/public_sample_noise_clustered.R`):
+confirms the reviewer's clustering concern, and the conclusion is even stronger than
+before.** Simulated public-LB-sized draws (184 respondents, ~70% of the 263 test
+respondents) from the training OOF predictions. Clustered SD for a single draw =
+0.0225 -- **2.14x larger** than the naive row-level estimate (0.0105) that ignores
+within-respondent correlation, confirming the row-level SE understated uncertainty
+as flagged. More importantly: simulating the DIFFERENCE between two independent
+same-model draws (i.e., "how far apart could two equally-good models' public scores
+look purely from sampling luck") gives SD 0.0325, and **64.6% of simulated
+same-model draw-pairs show a gap >= 0.015** -- the observed 1.202 vs 1.187 gap is not
+just "plausible," it is the MAJORITY outcome even when there is truly no underlying
+quality difference. Strengthens (not just confirms) dropping this as an open mystery.
+
+**Cleaner income-weighted decomposition (`R/income_weighted_decomposition_v2.R`):
+point estimate confirmed, but the confidence interval includes zero.** Using a clean
+univariate density-ratio weight (test income-bracket share / train income-bracket
+share, at the respondent level, not conflated with the other 14 covariates the
+adversarial classifier used) gives delta = 0.010311 -- consistent with the earlier
+0.010659 from the multivariate weight, a reassuring cross-check. Effective sample
+size n_eff = 718 of 1135 respondents, NOT dominated by a handful of people. However,
+the bootstrap 95% CI on delta is **[-0.0057, 0.0290] -- includes zero.** The point
+estimate (~18% of the total gap) is our best guess, but we cannot statistically rule
+out that the income shift's true contribution to the gap is zero.
+
+**Per-bracket bootstrap CIs: the "mechanism" story does not hold up.** Bracket 14
+(n=28 respondents): mean OOF loss 1.246, 95% CI [1.095, 1.408] -- CONTAINS the
+overall mean (1.147). Bracket 28 (n=13): mean 1.063, 95% CI [0.941, 1.183] -- also
+contains the overall mean. Neither flagged bracket is statistically distinguishable
+from the average once its own sampling uncertainty is accounted for. The apparent
+"one bracket bad, one bracket good" pattern from the point estimates alone is fully
+consistent with noise at these sample sizes (13-28 respondents) -- exactly the
+caution the reviewer itself raised, now confirmed by the data rather than assumed.
+No targeted, bracket-specific fix is supported by this evidence.
+
+**Conclusion, now on solid statistical footing rather than point estimates alone:**
+the income shift may contribute something to the CV-public gap (point estimate ~18%,
+but not statistically distinguishable from zero), there is no reliable evidence of a
+specific fixable mechanism within it, the log-income model test confirms this with a
+null result, and the competing team's 1.187 score is not just "not clearly anomalous"
+but is the typical, majority outcome under ordinary sampling variation between two
+comparably-good models. This fully closes the external-review investigation that
+began 2026-07-26.

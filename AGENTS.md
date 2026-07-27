@@ -259,17 +259,41 @@ actually improving the score came back null once properly validated.**
   likelihood instability both reviews warned about, demonstrated concretely
   rather than avoided. Not adopted.
 
-**Conclusion:** the low-1.1x leaderboard score, if genuine, is not explained
-by anything in this round's investigation -- the two most theoretically
-credible levers (design-cell empirical information, latent/discrete
-heterogeneity) both failed on honest validation. Combined with the earlier
-calibration diagnostic (well-calibrated, no exploitable pattern in the
-misses, xgboost can't out-predict the logit), the case that ensemble_v11 is
-near this dataset's practical ceiling for legitimate, generalizable modeling
-is now supported from multiple independent angles, not just one. The
-confirmed income shift and blocked-design overlap are real, report-worthy
-insights regardless -- cite them in the report even though neither improved
-the score.
+**Conclusion:** the two most theoretically credible levers (design-cell
+empirical information, latent/discrete heterogeneity) both failed on honest
+validation. Combined with the earlier calibration diagnostic (well-calibrated,
+no exploitable pattern in the misses, xgboost can't out-predict the logit),
+the case that ensemble_v11 is near this dataset's practical ceiling for
+legitimate, generalizable modeling is supported from multiple independent
+angles, not just one. The confirmed income shift and blocked-design overlap
+are real, report-worthy insights regardless -- cite them in the report even
+though neither improved the score.
+
+**2026-07-27 update -- the "1.187 mystery" is resolved, not just softened.** A
+teammate's report that a competing team scored 1.187 public (only 0.015 below
+our 1.202) prompted two follow-ups: (1) submitting `mlogit_m8trpg` standalone
+(no xgboost) to test whether the blend was an "overfitting tax" -- refuted,
+see the gap table below; (2) a properly respondent-clustered simulation of
+public-LB-sized samples (184 respondents, matching the ~70% public share of
+263 test respondents), since a naive row-level SE ignores that rows cluster
+within respondents. Result: the clustered SD (0.0225) is 2.14x the naive
+row-level estimate (0.0105), and **64.6% of simulated same-model draw-pairs
+show a gap of >=0.015 purely from sampling luck** -- the observed gap is the
+MAJORITY outcome between two equally-good models, not a rare or notable one.
+Separately, quantified how much of the gap the confirmed income shift
+explains: point estimate ~0.010 (~18% of the 0.057 total gap) via two
+independent weighting schemes that agree closely, but the bootstrap 95% CI on
+that estimate is [-0.0057, 0.029] -- includes zero, so even this can't be
+stated as a confirmed nonzero effect. A follow-up model test (log-transformed
+income, motivated by income's skew) came back null (1.1601 vs 1.159681,
+negligible), consistent with per-bracket bootstrap CIs showing neither
+flagged income bracket is statistically distinguishable from the average
+once its own small sample size is accounted for (bracket 14, n=28: 95% CI
+[1.10, 1.41] contains the overall mean 1.147; bracket 28, n=13: 95% CI
+[0.94, 1.18] also contains it). **This is now a closed investigation, not an
+open question**: no further lever has cleared the bar, and the 1.187 score
+specifically should not be treated as evidence of a missing modeling
+breakthrough.
 
 ## Known weakness: CV-to-public gap, and what actually drives it (updated 2026-07-27)
 | Model | CV/Val | Public | Gap |
