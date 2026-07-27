@@ -836,3 +836,40 @@ interaction terms in the same family). Worth stating carefully in the report rat
 than the simpler "gap grows with complexity" framing used earlier in the day; the
 more precise version is "gap grows with model-specific overfitting risk, and
 ensembling across diverse families appears to mitigate rather than compound it."
+
+## 2026-07-27: Quantifying how much of the gap the income shift explains (`R/income_gap_decomposition.R`)
+
+Follow-up on the confirmed income shift, per external-reviewer feedback pushing for a
+single decomposed number rather than the earlier ambiguous weighted-vs-unweighted
+comparison. Reused the existing OOF predictions and adversarial-classifier importance
+weights (no new fitting, no submission cost).
+
+**Gap decomposition:** importance-weighted CV log loss (mimicking test's covariate
+distribution) = 1.15768 vs unweighted 1.147021. Difference = **0.010659**, which is
+**~18.7% of ensemble_v11's total CV-to-public gap (0.057)**. The confirmed shift
+explains a real but MINORITY share of the gap -- the rest is genuinely something
+else (public-sample noise, or factors this project hasn't identified).
+
+**Per-income-bracket OOF loss (finer than the earlier tercile check): mixed, not a
+clean story.** Checked the specific brackets most over-represented in test:
+- Bracket 14 (2.5% of train respondents -> 9.1% of test, a 3.7x jump): OOF log loss
+  1.246, meaningfully worse than the overall mean (1.147). Matches the hypothesized
+  "extrapolation into a test-common but train-rare region" mechanism.
+- Bracket 28 (1.15% -> 3.4%, a similar-sized jump): OOF log loss 1.063, BETTER than
+  average -- the opposite pattern.
+
+So it is not "high income predicts badly" as a general rule; one specific bracket
+looks like a real weak spot, another does not. Bracket 14's estimate rests on ~28
+respondents (532 rows), so a 0.10 deviation is suggestive but not overwhelming --
+rough scaling from the bootstrap SD established earlier puts a 28-respondent
+subgroup's own noise around +/-0.06. **Important correction to a specific suggested
+fix:** it was proposed that "replacing binned income in the interactions with
+continuous incomea" would help -- but P_income/In_income already use continuous
+incomea, not incomeind, confirmed earlier in the project (see the "*a* covariates
+are genuinely richer than *ind*" data-quality finding). If bracket 14 is real, the
+mechanism would have to be linear-extrapolation risk into a sparse income tail, not
+discrete-bin sparsity -- a different, less clear-cut story than the nightind
+sparsity case, and not one this project has enough evidence to act on yet (one
+flagged bracket confirming, one contradicting, on a modest sample). Not implementing
+a speculative nonlinear-income respecification from this alone; logging it as solid,
+nuanced report material for the public-vs-private section instead.
