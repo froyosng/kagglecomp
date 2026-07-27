@@ -485,6 +485,21 @@ another machine. Her test-set predictions exist as a file regardless (submission
 yet made) -- worth re-validating on `data_processed/train_val_split.rds` and fixing the
 path before trusting or submitting it.
 
+**Update, 2026-07-27: submitted, public 1.221.** Her `submission_ensemble1.csv` was
+submitted to Kaggle. Since no internal log-loss number was ever captured (only printed
+to a console watchlist and now gone), this is the first trustworthy signal of any kind
+about this model's real quality -- there's no leaked/optimistic number to compare
+against or discount, just an honest public score. Puts it in context against the rest
+of the team's logged public scores: worse than `ensemble_v11` (1.202, current best) and
+the standalone mlogit (1.213), but meaningfully better than Zeening's random forest
+(1.259) despite both having leakage-flawed internal validation splits (Clarence's is
+task-based, Zeening's is fully row-level-random -- a more severe form of the same
+leakage). Doesn't change the current-best recommendation, but is worth noting for the
+report/team record: the leakage in her validation methodology was a real problem for
+trusting her *internal* number, but it says nothing bad about the model itself, which
+turns out to be reasonably competent in practice. Her branch still isn't merged into
+`zhenhao` and the validation split itself is still unfixed.
+
 ## 2026-07-26: Price as a saturated factor + choice-set context effects (new best)
 
 Two ideas that had never been tried despite being obvious in hindsight: (1) every one

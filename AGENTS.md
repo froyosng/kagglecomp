@@ -523,6 +523,12 @@ the bar. As exhaustive a search as the remaining time reasonably allows.
   her validation split is Task-based (<=12 vs >12), not respondent-grouped,
   which leaks a respondent's tasks across train/test -- her reported number
   isn't trustworthy until fixed. Also has a hardcoded machine-specific `setwd()`.
+  Submitted 2026-07-27: public **1.221** -- since no internal log-loss number
+  was ever captured, this is the first trustworthy signal on this model at
+  all. Worse than ensemble_v11 (1.202) and the standalone mlogit (1.213), but
+  meaningfully better than Zeening's random forest (1.259). Doesn't change the
+  current-best recommendation; the model itself is reasonably competent even
+  though its internal validation methodology still isn't fixed.
 - Zeening's random forest (`rf_gridsearch`, ranger, grid-searched mtry/
   min.node.size) submitted: public 1.259. Her internal CV (1.162) is unreliable
   for the same reason as Clarence's -- her split is fully row-level random
