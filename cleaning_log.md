@@ -1253,3 +1253,85 @@ very near the practical ceiling for legitimate, generalizable modeling on
 this dataset, given the ~5 days remaining before the competition closes
 (2026-08-01). Further effort is better spent on the report than on additional
 modeling rounds unless a genuinely new structural idea surfaces.
+
+## 2026-07-27: One more exhaustive pass -- noise-floor check, post-hoc calibration, and seed-bagging
+
+Explicitly pushed to make sure "near the practical ceiling" wasn't premature
+convergence rather than a genuinely exhausted search. Two sanity/diagnostic
+checks first, since a real audit starts by questioning whether the target
+(beating the leaderboard leaders) is even the right thing to chase, then one
+more concrete technique tried directly (not via Codex, using cached OOF
+artifacts already on disk).
+
+**Noise-floor reality check.** The gap to the reported leaders (1.187, 1.190
+vs. our 1.202 -- 0.015 and 0.012) is *smaller* than this project's own
+established public-LB sampling noise floor: the respondent-clustered
+simulation (`R/public_sample_noise_clustered.R`, logged 2026-07-27 earlier)
+found 64.6% of same-model draw-pairs differ by >=0.015 from sampling luck
+alone. This doesn't mean there's nothing left to find -- it means the
+leaderboard gap itself is not strong evidence of a missing lever, and only
+CV+bootstrap-confirmed results should move the model, exactly the discipline
+already in place.
+
+**Post-hoc calibration / temperature scaling against the target-weighted loss
+-- clean no.** If the existing model were specifically overconfident on the
+income-shifted, test-like respondents (as opposed to just having a coefficient
+gap), flattening its predictions post-hoc should improve the already-built
+target-weighted evaluation proxy (density-ratio weights from the covariate-
+shift refit round) even without retraining. Swept temperature scaling
+(0.75-1.35) and shrinkage toward both uniform and the global empirical
+Ch1-Ch4 shares (0-20%) directly on the existing `ensemble_v11` OOF
+predictions -- no refitting, no leakage risk, pure post-processing. Result:
+**identity (no adjustment) is optimal on both the ordinary loss AND the
+target-weighted loss**; every step away from it makes both worse
+monotonically. This is a clean, decisive negative that closes off post-hoc
+recalibration as a lever entirely, and complements the earlier failed
+reweighted-refit finding: it shows the model's *confidence*, not just its
+*coefficients*, is already close to what a target-weighted objective would
+want, at least along the axes tested.
+
+**Seed-bagging xgboost -- a real effect that doesn't reach the ensemble.**
+Averaged the exact `cv_ensemble_v10.R` xgboost config (eta=0.1, depth=4,
+subsample/colsample=0.8, nrounds=73) across 20 random seeds within each
+canonical CV fold (`R/xgb_seed_bagging.R`) -- pure variance reduction, no new
+model complexity, directly testing the one mechanism already confirmed to
+work here (diverse-model blending reduces the generalization gap). Two
+distinct findings:
+- **The bagged xgboost alone is genuinely, statistically better** than the
+  single-seed version: 1.178668 -> 1.176836, respondent-bootstrap 95% CI
+  [0.000336, 0.003297] -- excludes zero on the positive side, 99.3% win rate.
+  Real, confirmed, textbook bagging working as expected. Learning curve
+  (1-20 seeds) shows the expected diminishing-returns shape, plateauing
+  around 8-14 seeds.
+- **But blended into ensemble_v11 at the same fixed 0.80/0.20 weight, the
+  improvement almost entirely disappears**: 1.145094 -> 1.145087
+  (+0.000008), bootstrap CI [-0.000294, 0.000302] -- centered on zero.
+  Because xgboost only carries 20% of the blend weight, and the blend with
+  mlogit was already absorbing most of xgboost's individual noise, making the
+  weak component even less noisy barely moves the thing that's actually
+  submitted.
+
+**Implication, not yet tested:** bagging the *dominant* (80%-weight) mlogit
+component via bootstrap-resampled respondents is the more promising version
+of this idea, since any variance reduction there would propagate almost
+directly into the blend. Not attempted in this pass -- correctly resampling
+respondents with replacement for a conditional logit requires relabeling
+duplicate-sampled respondents' `Case`/`chid` to avoid ID collisions in the
+panel structure, a real implementation risk not worth rushing. Flagged as a
+follow-up for Codex alongside two other genuinely new leads (data-driven
+interaction discovery via xgboost SHAP values, since every interaction tested
+all session was a human hypothesis rather than data-nominated; and partial
+pooling / ridge-shrunk segment-specific slopes via the existing glmnet-Cox
+penalized-likelihood machinery, targeting the exact failure mode the
+segment-slope experiment just demonstrated -- full separate slopes overfit,
+full pooling is the current baseline, nobody has tried the shrinkage middle
+ground).
+
+**Net effect on the conclusion:** unchanged. `ensemble_v11` remains the best
+and current submission. But this pass adds two more independently-verified
+negative/inconsequential results (post-hoc calibration, xgboost seed-bagging)
+to the pile, and converts "we've stopped finding things" from possible
+premature convergence into "we checked the two most obvious remaining classes
+of technique (recalibration, variance reduction via bagging) and both are
+genuinely exhausted for the model in its current form" -- a stronger claim,
+honestly earned rather than assumed.

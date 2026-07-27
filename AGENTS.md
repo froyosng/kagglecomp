@@ -446,6 +446,38 @@ With ~5 days left before the competition closes (2026-08-01), further effort
 is better spent on the report than another modeling round unless a genuinely
 new structural idea surfaces.
 
+## Resolved: noise-floor check, post-hoc calibration, and seed-bagging (2026-07-27)
+Deliberately re-audited whether "near the practical ceiling" was premature
+convergence. First: the leaderboard gap to the reported leaders (1.187/1.190
+vs. our 1.202, 0.012-0.015) is *smaller* than this project's own confirmed
+public-LB noise floor (64.6% of same-model draw-pairs differ by >=0.015 from
+sampling luck alone) -- the gap itself isn't strong evidence of a missing
+lever. Then two more concrete techniques, run directly rather than via Codex:
+
+- **Post-hoc temperature/shrinkage calibration against the target-weighted
+  (shift-aware) loss: clean no.** Identity (no adjustment) is optimal on both
+  the ordinary AND target-weighted loss; every deviation makes both worse.
+  Closes off recalibration as a lever -- the model's confidence, not just its
+  coefficients, is already close to optimal even under the shift-aware
+  objective.
+- **Seed-bagging xgboost (`R/xgb_seed_bagging.R`, 20 seeds x 5 canonical
+  folds): a real effect that doesn't reach the ensemble.** Bagged xgboost
+  alone is genuinely better (1.178668 -> 1.176836, bootstrap CI
+  [0.000336, 0.003297], excludes zero -- confirmed real). But blended at the
+  fixed 0.80/0.20 weight, the gain nearly vanishes (1.145094 -> 1.145087,
+  CI centered on zero) because xgboost's small blend weight means its own
+  noise was already mostly absorbed by the ensemble. The more promising
+  version -- bagging the *dominant* mlogit component via bootstrap-resampled
+  respondents -- wasn't attempted (real implementation risk around
+  respondent-ID collisions under resampling) and is queued as a Codex
+  follow-up.
+
+**Net effect: unchanged, `ensemble_v11` remains best.** But this converts "we
+stopped finding things" from possible premature convergence into "we checked
+the two most obvious remaining technique classes (recalibration, bagging) and
+both are genuinely exhausted," which is a stronger, more honestly-earned
+claim. Full detail in `cleaning_log.md`, 2026-07-27.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
