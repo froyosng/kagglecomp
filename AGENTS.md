@@ -271,20 +271,29 @@ confirmed income shift and blocked-design overlap are real, report-worthy
 insights regardless -- cite them in the report even though neither improved
 the score.
 
-## Known weakness: CV-to-public gap is growing with model complexity
+## Known weakness: CV-to-public gap, and what actually drives it (updated 2026-07-27)
 | Model | CV/Val | Public | Gap |
 |---|---|---|---|
 | mod1 | 1.236 | 1.270 | 0.034 |
 | mod7 | 1.202 | 1.230 | 0.028 |
 | ensemble_v9 | 1.152 | 1.204 | 0.052 |
-| ensemble_v11 | 1.145 | 1.202 | 0.057 |
+| ensemble_v11 (mlogit+xgboost blend) | 1.145 | 1.202 | 0.057 |
+| mlogit_m8trpg standalone (no xgboost) | 1.147 | 1.213 | **0.066 (largest)** |
 
-Going from ensemble_v9 to ensemble_v11, CV improved by 0.0066 but public only
-improved by 0.002 -- roughly 70% of the apparent CV gain didn't show up on the
-public score, because the gap grew almost as much as the CV improved. Plausibly
-partly public-sample noise (~3,500 rows), but the consistent direction across
-4 data points as complexity has grown is worth treating as a real pattern for
-the report's public-vs-private discussion, not dismissing as noise.
+Tested and refuted the obvious hypothesis: that the blend's small CV gain
+(0.0019 from adding xgboost, right at the noise floor) was an "ensemble
+complexity tax" and a leaner standalone logit would transfer better. It
+didn't -- the standalone logit's gap (0.066) is the LARGEST in the project,
+worse than the full ensemble's (0.057), despite being the simpler model. The
+real pattern: blending in xgboost (which never beats the logit alone, CV
+1.1787 vs 1.147) genuinely reduces the public-facing gap rather than adding
+to it -- a real, confirmed instance of ensemble variance reduction, not
+assumed. **Practical takeaway: keep the xgboost blend; gap size alone is not
+a reliable signal of which model generalizes better, and the earlier
+"complexity always grows the gap" framing was too simple.** Prompted by a
+teammate reporting a competing team's public score of 1.187 (only 0.015 below
+ours, not the "low-1.1x" gap originally assumed) -- this test doesn't explain
+that score; it remains open.
 
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).

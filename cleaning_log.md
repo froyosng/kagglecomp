@@ -790,3 +790,49 @@ structural findings (income shift, blocked-design overlap), and every concrete i
 tested from either review (design-cell shrinkage, latent-class) came back null once
 properly validated -- consistent with the calibration-based "near the practical
 ceiling" conclusion from earlier in the day.
+
+## 2026-07-27: A competing team's public score (1.187) prompts one more test -- hypothesis refuted, but informative
+
+A teammate reported another team's public leaderboard score of 1.187 -- only 0.015
+below our 1.202, not the "low-1.1x" gap originally assumed. Proposed a concrete,
+testable explanation before speculating further: ensemble_v11's CV-to-public gap
+(0.057) is unusually large for the tiny CV gain the xgboost blend actually provides
+(0.0019, right at the edge of the bootstrap noise floor established earlier) -- maybe
+the blend was adding an "ensemble complexity tax" that a leaner single model could
+avoid, and a standalone mlogit_m8trpg submission might transfer better and land
+closer to 1.187.
+
+**Tested directly rather than left as a guess: submitted mlogit_m8trpg alone (no
+xgboost), `submission_mlogit_m8trpg_only.csv`.** Result: public **1.213** -- WORSE
+than the full ensemble (1.202), with a gap of 0.065979, the largest of any model in
+the project. Hypothesis refuted.
+
+**What this actually shows, which is more useful than the original guess:** blending
+in xgboost -- a model that never beats the logit alone on CV (1.1787 vs 1.147) --
+genuinely reduces the public-facing generalization gap rather than adding to it. This
+is a clean, empirically-confirmed instance of classic ensemble variance reduction:
+averaging two model families with different error patterns produces a more robust
+prediction even when one family is individually weaker, and that robustness shows up
+specifically when moving from the training distribution to a shifted one (matching
+the confirmed income-based covariate shift from the review round). Practical
+takeaway: keep the xgboost blend, don't simplify it away in pursuit of a smaller
+gap -- the gap size alone is not a reliable signal of which model will generalize
+better. Still does not explain the competing team's 1.187 -- that remains an open
+question the project hasn't found a lever for.
+
+Updated CV-to-public gap table (all models submitted so far):
+
+| Model | CV/Val | Public | Gap |
+|---|---|---|---|
+| mod1 | 1.236 | 1.270 | 0.034 |
+| mod7 | 1.202 | 1.230 | 0.028 |
+| ensemble_v9 | 1.152 | 1.204 | 0.052 |
+| ensemble_v11 | 1.145 | 1.202 | 0.057 |
+| mlogit_m8trpg (standalone, no xgboost) | 1.147 | 1.213 | **0.066** |
+
+The gap is not monotonic in CV quality or even in model complexity alone -- it
+depends on which *kind* of complexity (a diverse second model family vs. more
+interaction terms in the same family). Worth stating carefully in the report rather
+than the simpler "gap grows with complexity" framing used earlier in the day; the
+more precise version is "gap grows with model-specific overfitting risk, and
+ensembling across diverse families appears to mitigate rather than compound it."

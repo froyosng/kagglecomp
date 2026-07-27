@@ -23,8 +23,9 @@ price/opt-out heterogeneity by covariates/segment/task/region/parking, plus
 choice-set context effects -- is this alternative the cheapest/dearest in its task,
 and by how much) with an XGBoost multiclass model. CV log loss **1.145094**, public
 leaderboard **1.202** (`submission_ensemble_v11_pricegap.csv`, submitted 2026-07-26).
-Note: the CV-to-public gap has grown across every complexity increase this project
-has made (mod1 0.034 -> ensemble_v9 0.052 -> ensemble_v11 0.057) -- see
+Note: keep the xgboost blend -- tested dropping it (standalone logit, no ensemble)
+and it made the public score WORSE (1.213, gap 0.066, the largest in the project),
+not better, refuting the "ensemble adds overfitting" hypothesis. See
 `cleaning_log.md` / `submissions_log.csv` for the full discussion, relevant for the
 report's public-vs-private section. Full model history, findings, and current next
 steps live in
