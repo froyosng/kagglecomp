@@ -258,9 +258,29 @@ actually improving the score came back null once properly validated.**
   sign across folds (beta_task2 ranges -0.248 to +0.165) -- the multimodal-
   likelihood instability both reviews warned about, demonstrated concretely
   rather than avoided. Not adopted.
+- **Latent-class logit, take 2 (`R/cv_latent_class_price_scale.R`, 2026-07-27):
+  tested the CENTRAL idea properly, not just the safe substitute.** The
+  original pitch from both reviews was price-sensitivity/opt-out segmentation,
+  not task-fatigue -- task-fatigue was chosen for the first attempt specifically
+  because it's additively safe from the price-factor collinearity. Went back
+  and tested price-sensitivity directly via a class-specific MULTIPLICATIVE
+  SCALE on the price-related linear predictor (avoids the collinearity a
+  direct additive shift on Price/inside would recreate). Result this time:
+  **stable, not multimodal** -- lambda converges to the same pair (~0.50 and
+  ~1.85-2.0) across all 4 single-split restarts AND all 5 CV folds, a
+  genuinely reproducible discrete split (roughly half vs. nearly double
+  normal price sensitivity). But pooled CV log loss (1.147629) is essentially
+  tied with the shared single-population model (1.147021, diff 0.0006, inside
+  the noise floor). Interpretation: the heterogeneity is real, but the
+  continuous covariate interactions already in the model (P_income, P_seg,
+  P_age) already capture it in smooth rather than discrete form -- redundant,
+  not wrong. This is a cleaner, more informative null than the task-fatigue
+  attempt (real+stable+redundant vs. unstable+worse) and closes the
+  latent-class question on both the scoped and central versions of the idea.
 
 **Conclusion:** the two most theoretically credible levers (design-cell
-empirical information, latent/discrete heterogeneity) both failed on honest
+empirical information, latent/discrete heterogeneity, tested in both its safe
+and central forms) both failed on honest
 validation. Combined with the earlier calibration diagnostic (well-calibrated,
 no exploitable pattern in the misses, xgboost can't out-predict the logit),
 the case that ensemble_v11 is near this dataset's practical ceiling for

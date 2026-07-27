@@ -935,3 +935,62 @@ null result, and the competing team's 1.187 score is not just "not clearly anoma
 but is the typical, majority outcome under ordinary sampling variation between two
 comparably-good models. This fully closes the external-review investigation that
 began 2026-07-26.
+
+## 2026-07-27: Testing the CENTRAL latent-class idea properly -- price-sensitivity classes, not just task-fatigue
+
+Both external reviews' original latent-class pitch was a **price-sensitivity/opt-out**
+segmentation (a price-insensitive "enthusiast" class vs. a price-sensitive one) --
+the task-fatigue version tested earlier was a scoped-down, collinearity-safe
+substitute, not the central idea. Went back and tested the real thing properly.
+
+**Why price-sensitivity couldn't be added the same (additive) way as task-fatigue.**
+An additive class-specific shift on "inside" or "Price_num" directly would recreate
+the exact collinearity found earlier (price dummies sum to "inside", same as the
+19-attribute active-count identity). Solution: a class-specific **multiplicative
+scale** on the price-related portion of the linear predictor instead (a discrete
+version of the "heteroskedastic scale" framing one review raised for the fatigue
+effect, applied here to price sensitivity specifically) -- `eta_class_q =
+eta_nonprice + lambda_q * eta_price`, where `eta_price` sums every price-related
+term's fitted contribution (the 11 price-level dummies, all `P_*` covariate/segment/
+region/ppark/task interactions, `is_cheapest`/`is_dearest`, `price_gap_min/max`) and
+`eta_nonprice` is everything else. Only 1 free utility parameter per class (the
+scale) plus the membership model -- more parsimonious than the task-fatigue version.
+
+**Implementation note:** getting `eta_price`/`eta_nonprice` for new (held-out) data
+required a different trick than the offset approach used for task-fatigue, since a
+single combined offset can't be split into two pieces after the fact. Computed
+`eta_price` directly from known feature columns x fitted coefficients (no
+`model.matrix()` on new data -- that approach mismatched columns before), and
+`eta_nonprice` as `log(predicted prob) - eta_price`. `log(predict())` only recovers
+the true linear predictor up to a per-task additive constant (softmax
+normalization), but that constant is identical across all 4 alternatives in a task,
+so it cancels in the final softmax regardless of how the two pieces are recombined
+-- verified this to machine precision (8.9e-16) before trusting anything, and
+separately verified that setting both classes' lambda to 1 exactly reproduces the
+known-correct single-population baseline number (1.159681) to 6 decimal places.
+
+**Result: stable, real, but a wash.** Single-split screen (`R/latent_class_price_scale_screen.R`)
+found lambda = (0.495, 1.904) -- one class at roughly half normal price sensitivity,
+another at nearly double -- IDENTICALLY across all 4 random EM restarts (unlike the
+unstable, sign-flipping task-fatigue attempt). Full 5-fold CV
+(`R/cv_latent_class_price_scale.R`) confirms the stability: lambda pairs across the
+5 folds are (0.52,1.94), (0.49,1.85), (0.50,1.82), (0.51,1.93), (0.52,2.01) -- a
+genuinely reproducible, well-identified split, not an artifact of one fold's
+respondents. But the pooled CV log loss is **1.147629 vs the shared single-population
+model's 1.147021** -- a difference of 0.0006, well inside the established noise floor
+(~0.001 SD for paired comparisons). Per-fold results are mixed (fold 1 and 5 favor
+the mixture by ~0.004-0.005, folds 2-4 favor the shared model by ~0.001-0.008),
+consistent with a true null rather than a real effect in either direction.
+
+**Interpretation:** this is a materially different, more informative null result than
+the task-fatigue attempt. The heterogeneity is real and stable -- roughly two
+populations with meaningfully different price sensitivities, predictable to some
+degree from segment/income/age -- but capturing it as a discrete class provides no
+net predictive advantage over the continuous covariate interactions (P_income,
+P_seg, P_age, etc.) already in the model. Most likely explanation: those continuous
+terms already capture the same underlying heterogeneity, just parameterized
+smoothly rather than as a hard 2-class split, so the discrete structure is redundant
+rather than wrong. This closes the latent-class investigation properly: both the
+safe (task-fatigue, unstable) and central (price-sensitivity, stable-but-redundant)
+versions have now been tested to the same standard as the project's confirmed wins,
+and neither survives. Not adopted; ensemble_v11 remains the best model.
