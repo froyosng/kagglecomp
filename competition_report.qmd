@@ -1,202 +1,280 @@
 ---
-title: "Predicting car safety-feature bundle choices: a discrete-choice modeling approach"
+title: "Predicting car safety-feature bundle choices"
+subtitle: "Discrete-choice structure, observed heterogeneity, and robust validation"
+author:
+  - "Imelda Lee"
+  - "Woon Zee Ning"
+  - "Clarence Elvareta"
+  - "Sng Zhenhao"
+format:
+  pdf:
+    documentclass: article
+    geometry:
+      - top=17mm
+      - bottom=17mm
+      - left=18mm
+      - right=18mm
+    fontsize: 9.5pt
+    number-sections: true
+    colorlinks: true
+    keep-tex: false
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{array}
+  - \usepackage{microtype}
+  - \setlength{\parskip}{3pt}
+  - \setlength{\parindent}{0pt}
+  - \setlength{\tabcolsep}{4pt}
+bibliography: references.bib
 ---
 
 ::: {.callout-note}
-This report was generated using AI under general human direction. At the time of generation, the contents have not been comprehensively reviewed by a human analyst.
-
-<!--
-To indicate human review: Delete the line above about contents not being reviewed, and replace this comment with:
-The contents have been reviewed and validated by [Your Name], [Your Role] on [Date].
--->
+This report was generated with AI assistance under human direction. The analysis,
+model selection, and numerical results were produced and checked by the project
+team; the final text should be reviewed by the team before submission.
 :::
 
-```{r}
-#| label: load-packages
-#| message: false
-library(tidyverse)
-library(mlogit)
-```
+# Problem, data, and validation
 
-```{r}
-#| label: define-logloss
-# Competition metric: mean negative log-likelihood over the 4 alternatives,
-# with predictions rescaled to sum to 1 (as the competition does).
-log_loss <- function(actual, pred, eps = 1e-15) {
-  actual <- as.matrix(actual); pred <- as.matrix(pred)
-  pred <- pred / rowSums(pred)
-  pred <- pmin(pmax(pred, eps), 1 - eps)
-  -mean(rowSums(actual * log(pred)))
-}
-```
+The task is to predict which of four car safety-feature bundles a respondent
+chooses. Alternatives 1--3 contain 19 safety-attribute level codes and a price;
+alternative 4 is a designed no-purchase option with every attribute and price
+fixed at zero. The training data contain 21,565 choice tasks from 1,135
+respondents, each completing exactly 19 tasks. The test data contain 4,997 tasks
+from 263 entirely new respondents. The outcome is evaluated by four-class log
+loss,
 
-```{r}
-#| label: load-data
-train <- read.csv("csv files/train.csv")
-```
+$$
+\mathrm{LogLoss}=-\frac{1}{N}\sum_{i=1}^{N}\sum_{j=1}^{4}
+y_{ij}\log(p_{ij}),
+$$
 
-# Problem and data
+for which uniform probabilities score 1.38629. The no-purchase option is chosen
+30.2% of the time, rising from about 24% at Task 1 to 34% at Tasks 15--19.
+Consequently, both the inside-bundle comparison and survey fatigue matter.
 
-Respondents chose among four car safety-feature bundles in a conjoint (discrete-choice) survey. Each of the first three alternatives is described by 19 safety-attribute level codes (`CC`, `GN`, ..., `HU`) plus a `Price`; the **fourth alternative is a designed opt-out** ("no purchase"), with all attributes and price fixed at zero. The task is to predict, for each choice occasion, the probability that each of the four alternatives is chosen. Submissions are scored by multi-class log loss; a naive uniform guess of 0.25 per alternative scores 1.38629.
+The separation of respondents is the central validation constraint. Cases
+1--1,135 occur only in train and Cases 1,136--1,398 only in test; therefore,
+random effects or memorized respondent preferences cannot transfer. A row-level
+split would also leak up to 18 tasks from the same person into the validation
+training set. We instead used an 80/20 respondent holdout (seed 7402) for rapid
+screening and respondent-grouped five-fold cross-validation (seed 4821) for
+confirmation. All reported cross-validation (CV) scores pool the out-of-fold
+predictions before calculating log loss. Model improvements were judged by
+paired respondent bootstrap comparisons, whose standard deviation was about
+0.001, rather than by coefficient significance alone.
 
-```{r}
-#| label: data-structure
-n_resp  <- length(unique(train$Case))
-n_tasks <- nrow(train)
-optout_share <- mean(train$Ch4)
-```
+# Best model: ensemble_v11
 
-The data is a balanced panel: `{r} n_resp` respondents each completed 19 choice tasks, for `{r} n_tasks` choice occasions in total. The opt-out is chosen in `{r} scales::percent(optout_share, accuracy = 0.1)` of occasions, so modeling the decision to *not* buy is as important as ranking the three real bundles. Each respondent also carries demographic covariates (income, age, annual mileage, night-driving frequency, gender, urbanicity, education, and the car-market **segment** they were shopping), which are constant across their 19 tasks.
+Our best submitted model, **ensemble_v11**, is the arithmetic probability blend
 
-# Validation strategy
+$$
+\hat{\mathbf p}=0.80\,\hat{\mathbf p}_{\text{m8trpg}}+
+0.20\,\hat{\mathbf p}_{\text{xgb}}.
+$$
 
-Because each respondent answered 19 correlated tasks, splitting the data by row would leak a person's answers across training and validation. All validation here is therefore done **at the respondent level**: whole respondents are assigned to training or holdout. We use a single 80/20 respondent split for rapid model comparison and confirm the winner with respondent-grouped 5-fold cross-validation. The `log_loss` helper above reproduces the competition metric exactly (a uniform guess returns 1.386294, matching the stated benchmark).
+It achieves **1.145094 respondent-grouped CV log loss and 1.202 public
+leaderboard log loss**, improving substantially over the 1.38629 benchmark.
 
-```{r}
-#| label: reshape-long
-attrs <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
-           "PP","KA","SC","TS","NV","MA","LB","AF","HU","Price")
-pat <- paste0("^(", paste(c(attrs, "Ch"), collapse = "|"), ")([1-4])$")
+## Structured conditional-logit component
 
-train_long <- train |>
-  pivot_longer(
-    cols = matches(pat),
-    names_to = c(".value", "alt"),
-    names_pattern = "^(.*)([1-4])$"
-  ) |>
-  mutate(
-    alt = as.integer(alt),
-    chosen = as.integer(Ch == 1),
-    chid = paste(Case, Task, sep = "_"),
-    d2 = as.integer(alt == 2),
-    d3 = as.integer(alt == 3)
-  )
-```
+The main component, **m8trpg**, is a conditional logit estimated with `mlogit`
+[@croissant2020]. Alternative 4 has utility fixed at zero. For each inside
+alternative, utility contains:
 
-```{r}
-#| label: respondent-split
-set.seed(7402)
-val_cases <- sample(unique(train_long$Case),
-                    size = round(0.2 * n_resp))
-tr <- train_long |> filter(!(Case %in% val_cases))
-va <- train_long |> filter(Case %in% val_cases)
-```
+- dummy-coded levels for all 19 safety attributes, avoiding an unjustified
+  linear-in-code assumption;
+- a saturated main effect for price levels 2--12;
+- indicators for being cheapest or dearest within the three-bundle choice set,
+  plus distances from the cheapest and dearest prices;
+- alternative dummies for positions 2 and 3;
+- linear price and inside-good interactions with observed respondent
+  heterogeneity: income, age, mileage, night driving, market segment, task
+  position, region, and parking availability, with selected inside-good
+  interactions for gender, urbanicity, and education.
 
-# Best model
+Respondent covariates cannot enter conditional logit as uninteracted main
+effects because they are constant across the four alternatives and cancel from
+the choice probability. Interacting them with price or an inside-good indicator
+lets observed heterogeneity transfer to unseen respondents. Task-position terms
+capture the increasing no-purchase rate across the 19-task survey. On its own,
+m8trpg scores **1.147021 CV**.
 
-The best model (referred to here as **mod8**) is a **conditional logit** in which the 19 attributes are dummy-coded (one coefficient per level, rather than assuming utility is linear in the level code), `Price` is continuous, and the opt-out utility is fixed at zero by construction. Two families of observed-heterogeneity terms are layered on top:
+### Price identification and choice-set context
 
-- **Price × respondent covariate** interactions, so price sensitivity varies with income, age, and mileage.
-- **Inside-good × respondent covariate** and **× segment** interactions, so both the propensity to buy *any* bundle versus opt out, and price sensitivity itself, vary by segment, gender, urbanicity, and education.
+Price produced the most important late-stage modeling advance. Earlier models
+treated it as one continuous slope even though every safety attribute was
+dummy-coded. A full price factor initially caused an exactly singular Hessian.
+This was not a numerical optimizer failure: design-matrix QR diagnostics exposed
+a structural rank-one dependency. Every inside bundle has exactly 9 of its 19
+attributes at a non-reference level, so
 
-Respondent covariates cannot enter a conditional logit as main effects (they are constant across a task's alternatives and cancel), so they must be interacted with alternative-varying quantities. Because the opt-out is always at the all-reference profile, alternative-specific intercepts are not separately identifiable once attributes are dummy-coded; fixing the opt-out utility at zero resolves this cleanly.
+$$
+\frac{1}{9}\sum_{k=1}^{19} I(\text{attribute }k\ne 0)
+=I(\text{inside bundle})
+=\sum_{\ell=1}^{12} I(\text{Price}=\ell).
+$$
 
-```{r}
-#| label: feature-engineering
-scaler_vars <- c("incomea","agea","milesa","nighta","genderind","Urbind","educind")
-ctr <- sapply(tr[scaler_vars], mean)
-scl <- sapply(tr[scaler_vars], sd)
+Thus, the attribute block and all twelve positive-price dummies independently
+reconstructed the same inside indicator. We resolved the redundancy by using
+price levels 2--12 and treating level 1 as the omitted price category; Price 0
+for the opt-out shares that reference cell because inside-versus-opt-out is
+already represented by the attribute block. This loses no identified
+information. The fitted level effects were monotone and convex (about -0.66 at
+level 2 to -3.64 at level 12), showing that the old linear-price specification
+had missed real curvature.
 
-make_features <- function(df) {
-  z <- sweep(sweep(df[scaler_vars], 2, ctr, "-"), 2, scl, "/")
-  df$inside <- as.integer(df$alt != 4)
-  df$P_income <- df$Price * z$incomea; df$P_age   <- df$Price * z$agea
-  df$P_miles  <- df$Price * z$milesa;  df$P_night <- df$Price * z$nighta
-  df$In_income <- df$inside * z$incomea; df$In_age   <- df$inside * z$agea
-  df$In_miles  <- df$inside * z$milesa;  df$In_night <- df$inside * z$nighta
-  df$In_gender <- df$inside * z$genderind; df$In_urb <- df$inside * z$Urbind
-  df$In_educ   <- df$inside * z$educind
-  for (s in 2:6) {
-    df[[paste0("P_seg",  s)]] <- df$Price  * (df$segmentind == s)
-    df[[paste0("In_seg", s)]] <- df$inside * (df$segmentind == s)
-  }
-  df
-}
+Choice-set context added complementary signal. `is_cheapest` and `is_dearest`
+encode price rank, while `price_gap_min` and `price_gap_max` encode the magnitude
+of the differences. Adding the price factor and rank terms improved CV from
+1.15671 to 1.15160; the two gap terms then improved it to 1.147021. The gap
+improvement was about 0.0046, several paired-bootstrap standard deviations, and
+was achieved with only two additional parameters.
 
-mdat_tr  <- dfidx(make_features(tr), idx = list(c("chid","Case"), "alt"), choice = "chosen")
-mdat_va  <- dfidx(make_features(va), idx = list(c("chid","Case"), "alt"), choice = "chosen")
-```
+## Diverse xgboost component
 
-```{r}
-#| label: fit-mod8
-attr_terms <- paste0("factor(", head(attrs, 19), ")")
-int_terms  <- c("P_income","P_age","P_miles","P_night",
-                "In_income","In_age","In_miles","In_night",
-                "In_gender","In_urb","In_educ",
-                paste0("P_seg", 2:6), paste0("In_seg", 2:6))
-fml8 <- as.formula(paste("chosen ~",
-  paste(c(attr_terms, "Price", "d2", "d3", int_terms), collapse = " + "), "| 0"))
-
-mod8 <- mlogit(fml8, data = mdat_tr)
-```
-
-```{r}
-#| label: eval-mod8
-truth_mat <- va |>
-  select(chid, alt, chosen) |>
-  pivot_wider(names_from = alt, values_from = chosen, names_prefix = "Ch") |>
-  arrange(match(chid, rownames(predict(mod8, newdata = mdat_va))))
-
-pred_va <- predict(mod8, newdata = mdat_va)
-ll_mod8 <- log_loss(truth_mat[, paste0("Ch", 1:4)], pred_va[truth_mat$chid, ])
-ll_mod8
-```
-
-Refitting mod8 under this report's split gives a holdout log loss of `{r} round(ll_mod8, 4)`, consistent with the canonical run (1.1896). The most informative coefficients concern how choices respond to price and to the buy-versus-opt-out decision across segments:
-
-```{r}
-#| label: mod8-highlights
-round(summary(mod8)$CoefTable[
-  c("Price", "P_age", "P_miles", "P_seg5", "In_gender", "In_urb"),
-  c("Estimate", "Pr(>|z|)")], 4)
-```
-
-The base `Price` coefficient is strongly negative, and `P_seg5` (the prestige-luxury segment) offsets much of it — those respondents are the least price-sensitive. `In_gender` and `In_urb` show that the willingness to buy any bundle rather than opt out differs by gender and urbanicity.
+The second component is a wide-format `multi:softprob` xgboost model with 73
+boosting rounds [@chen2016]. It is weaker alone (**1.178668 CV**) because it must
+learn the within-task choice structure from raw columns, but its errors differ
+from the conditional logit's. Out-of-fold weight search assigns it 20% and
+reduces CV log loss by 0.001927. The gain is small but directionally stable:
+the ensemble beat m8trpg in 96.6% of paired respondent bootstrap samples.
 
 # Alternatives tried
 
-We worked up from simple to complex, always selecting on respondent-level holdout log loss rather than training fit. The table below summarizes every model family considered; validation figures are from the common respondent holdout, and public scores are shown where the model was submitted to Kaggle.
+Table 1 reports the main progression on comparable respondent-grouped
+validation. Single-split figures are shown only for early models that predated
+the canonical five-fold harness.
 
-```{r}
-#| label: model-comparison
-comparison <- tribble(
-  ~Model, ~Description, ~Validation, ~Public,
-  "Benchmark",        "Uniform 0.25 per alternative",                       1.3863, 1.38629,
-  "CART",             "Single classification tree (rpart)",                 1.2930, NA,
-  "Mixed logit (all)","Random coefficients on all 20 attributes",           1.2474, NA,
-  "mod1",             "Continuous conditional logit + ASCs",                1.2357, 1.270,
-  "Mixed logit (Price)","Random Price only",                               1.2346, NA,
-  "LASSO multinomial","Per-class glmnet on wide features",                  1.2257, NA,
-  "mod2b",            "Factor-coded conditional logit + alt dummies",       1.2186, NA,
-  "mod6",             "mod2b + Price x covariate interactions",             1.2049, NA,
-  "xgboost",          "Gradient-boosted trees, multiclass",                 1.2042, NA,
-  "mod7",             "mod6 + inside x covariate interactions",             1.2024, 1.230,
-  "mod8",             "mod7 + Price/inside x segment interactions",         1.1896, NA
-)
-knitr::kable(comparison, digits = 4,
-             caption = "Model comparison (respondent-level holdout log loss).")
-```
+| Model | Main change | Local log loss | Public |
+|---|---|---:|---:|
+| Uniform benchmark | 0.25 per alternative | 1.3863 | 1.386 |
+| mod1 | Linear conditional logit + ASCs | 1.2357 (holdout) | 1.270 |
+| mod2b | Factor-coded attributes; identified alt dummies | 1.2186 (holdout) | -- |
+| mod6 / mod7 | Price heterogeneity, then inside-good heterogeneity | 1.2049 / 1.2024 (holdout) | -- / 1.230 |
+| mod8 | Segment-specific price and inside effects | 1.1665 (CV) | -- |
+| m8tr | Task fatigue, region, parking | 1.1567 (CV) | -- |
+| ensemble_v9 | 70% m8tr + 30% xgboost | 1.1517 (CV) | 1.204 |
+| m8trp | Saturated price + cheapest/dearest rank | 1.1516 (CV) | -- |
+| m8trpg | Add price-gap magnitudes | 1.1470 (CV) | 1.213 |
+| **ensemble_v11** | **80% m8trpg + 20% xgboost** | **1.1451 (CV)** | **1.202** |
 
-A few results shaped the final choice. Dummy-coding the attribute levels (mod2b) beat the linear-in-code specification (mod1), confirming attribute utility is non-linear. The largest single gain came from letting price sensitivity vary with observed covariates (mod6), and a further clear gain from segment-specific price sensitivity and opt-out propensity (mod8). A **fully random-coefficient mixed logit** improved training log-likelihood substantially but was *worse* on holdout — a textbook overfitting result (20 random parameters from 19 tasks per person), and a caution we relied on throughout. Adding a random `Price` on top of mod8 helped negligibly (holdout ≈ 1.1893): once observed heterogeneity is modeled, little unobserved price heterogeneity remains.
+: Main model progression. Lower log loss is better. {#tbl-models}
 
-We also tested a **different model family**, gradient-boosted trees (xgboost, `multi:softprob`, `nrounds` tuned by respondent-grouped CV), on the wide-format features. Its holdout log loss (1.2042) sits near mod7 and clearly above mod8. A flexible, structure-free learner does not beat a well-specified choice model here because the random-utility structure — within-task comparison of alternatives, generic attribute slopes, a designed opt-out — is encoded directly by the logit but must be learned from raw features by the tree ensemble.
+The experiments also established useful negative results:
+
+- **Alternative choice structures.** Nested logit did not improve the
+  bundle-versus-opt-out split. Full and price-only mixed logits improved
+  training fit but not prediction for unseen respondents. Two observed-membership
+  latent-class extensions [@mclachlan2000] were also null. A task-fatigue
+  mixture scored 1.147826 CV and its class effects changed sign across folds.
+  A more central model applied a class-specific multiplicative scale to every
+  price-related utility term. It found stable classes at about 0.5 and
+  1.85--2.0 times normal price sensitivity across all folds, but scored
+  1.147629 versus 1.147021 for m8trpg--a 0.0006 difference inside the noise
+  floor. The discrete heterogeneity was real but redundant with continuous
+  income, segment, and age interactions.
+- **Flexible learners.** CART, LASSO multinomial regression, and xgboost alone
+  remained behind the structured logit. A long-format binary xgboost followed
+  by within-task renormalization scored 1.2053 versus 1.2042 for its wide
+  multiclass counterpart; renormalization is not a genuine ranking objective.
+  A teammate's random forest reported 1.1616 under a row-level split but 1.259
+  publicly, illustrating the leakage caused by splitting repeated tasks rather
+  than respondents.
+- **Extra heterogeneity.** Attribute-by-segment terms, K-means personas, relative
+  feature load, and additional price interactions with gender, urbanicity, or
+  education did not generalize. Categorical price interactions with sparse
+  night-driving and mileage bins caused quasi-separation; only balanced age
+  bins gave a negligible gain. A log-income transformation was also null.
+- **Combination methods.** A nested-CV conditional-logit stack on the base
+  models' log probabilities [@wolpert1992] scored 1.146126, marginally worse
+  than the simple probability blend. With only two base models and a small
+  minority weight on xgboost, the extra combiner flexibility added little.
+
+These results show why selection used predictive loss rather than p-values:
+several added terms had very small p-values yet worsened the holdout score.
 
 # Public versus private leaderboard fit
 
-The private leaderboard is unknown until the competition closes, so this discussion rests on the relationship between our holdout estimates and the public scores we have observed. Two submitted models give calibration points: mod1 (holdout 1.236, public 1.270; gap 0.034) and mod7 (holdout 1.202, public 1.230; gap 0.028). The gaps are small, similar, and in the expected direction (holdout mildly optimistic), which indicates the covariate and segment interactions **generalize rather than overfit**.
+The public leaderboard evaluates approximately 70% of the 4,997 test tasks; the
+remaining 30% forms the unseen private leaderboard. The public gap has not been
+constant: mod1 was 0.034 worse than local validation, mod7 0.028 worse,
+ensemble_v9 0.052 worse, and ensemble_v11 0.057 worse. This prevents us from
+projecting the private score by simply adding a fixed correction to CV.
 
-To tighten mod8's estimate beyond the single split, we ran respondent-grouped **5-fold cross-validation**, refitting mod8 on each fold and recomputing the standardization scaler within each fold's training data. The pooled CV log loss was **1.1665**, slightly below the single-split 1.1896 — the single validation fold was simply a bit harder than average. Applying the observed ~0.03 holdout-to-public gap to mod8 suggests a public score in the low 1.2s, ahead of mod7's confirmed 1.230.
+## Distribution shift and experimental blocks
 
-We expect the private leaderboard to track the public one closely for two reasons: model selection was driven by respondent-level holdout and CV (not by public-leaderboard probing), and we deliberately avoided models that improved only in-sample fit. The main residual risk is that the public and private splits emphasize different respondent types; because our best model leans on demographic and segment heterogeneity, an unusual private-split composition could widen the gap modestly.
+Adversarial validation using respondent covariates distinguished train from
+test at **AUC 0.634**, confirming covariate shift. Income was the dominant
+separator: median income was 60,000 in train and 80,000 in test, and some top
+brackets were more than three times as prevalent in test. However, this did not
+justify an unvalidated correction. Test-likeness weighting raised m8trpg's OOF
+loss from 1.1470 to about 1.1577, but the highest-income training tercile
+actually had the best loss. Two income-reweighting estimates put the shift's
+contribution to the 0.057 CV-public gap near 0.010 (about 18%), yet a
+respondent-bootstrap 95% interval of **[-0.0057, 0.029]** includes zero.
+Log-income interactions did not improve validation. We therefore treat income
+shift as a real risk factor, not as a quantified causal explanation.
 
-::: {.callout-note}
-**Best model status.** mod8 is our recommended model on holdout and cross-validation. At the time of writing, the best *confirmed* public score belongs to mod7 (1.230); mod8's public score is pending submission.
-:::
+The conjoint experiment is also heavily blocked: each task position draws from
+about 296 exact designs, seen by 3.8 respondents on average, and **98.5%**
+(4,921/4,997) of test tasks exactly repeat a train design. Cross-fitted
+empirical choice-share shrinkage improved 1.145094 only to 1.144742, within the
+paired noise floor; stronger use of cell frequencies hurt because three or four
+observations cannot estimate a reliable four-way share. The overlap is
+reassuring for design support but does not remove respondent-composition risk.
+
+## Why the ensemble should be retained
+
+We directly tested whether xgboost caused a complexity or overfitting penalty by
+submitting m8trpg alone. Despite being simpler, it scored **1.213 public**, a
+0.065979 CV-public gap--the largest among our trustworthy models--whereas
+ensemble_v11 scored 1.202 with a 0.056906 gap. Removing the weaker learner made
+the public result worse. The 20% xgboost component therefore acts as genuine
+variance reduction, not needless complexity, and ensemble_v11 remains our
+private-leaderboard choice.
+
+Leaderboard differences must also be interpreted at the respondent level. A
+reported competing public score of 1.187 is only 0.015 below ours. Resampling
+public-sized sets of 184 whole respondents from OOF predictions gave a
+single-score standard deviation of **0.0225**, 2.14 times the naive row-level
+estimate of 0.0105. Among pairs of equally generated samples, **64.6%** differed
+by at least 0.015. Thus, a 1.187 versus 1.202 public difference is a majority
+outcome under same-quality models and is not evidence of a missing breakthrough.
+The smaller private panel will be at least as composition-sensitive. Our best
+defense is respondent-grouped CV, observed (transferable) heterogeneity, and a
+diverse ensemble--not tuning to one public split.
 
 # Insights and limitations
 
-**Insights.** Price is by far the dominant driver of choice, but price sensitivity is heterogeneous: it weakens with age and, most strikingly, in the prestige-luxury segment. The decision to buy anything at all versus opt out varies systematically with gender, urbanicity, and segment — the opt-out is a genuine behavioral choice, not noise. Attribute utility is non-linear in the level codes, so dummy-coding matters. Finally, observed heterogeneity (interactions with measured covariates) captured essentially all the exploitable person-to-person variation; unobserved heterogeneity via random coefficients added nothing once those interactions were present.
+Three behavioral insights were especially robust. First, price response is
+nonlinear and depends on both absolute price and its rank and distance within
+the displayed choice set. Second, observed respondent characteristics change
+price sensitivity and the propensity to purchase, while respondent-specific
+random effects do not transfer to new people. Third, task position matters:
+the rising opt-out share is consistent with fatigue or satisficing over the
+19-choice sequence.
 
-**Limitations.** All competitive models come from a single family (conditional logit), so shared misspecification would not show up in our internal comparisons. We assume the extra-granular covariates (e.g., within-bin mileage estimates) are reliable, and we cannot validate against the private leaderboard until the competition closes.
+The remaining error looks broadly stochastic rather than concentrated in a
+fixable subgroup. Across OOF predictions, observed and predicted frequencies
+agree within 1--2 percentage points over most of the 0--0.8 probability range.
+Although 49.5% of tasks are argmax misses, this is compatible with probabilistic
+calibration; 36.3% of misses have a probability gap above 0.30, but their rate
+is flat across segment, task bucket, region, and true class. The worst 10% of
+tasks contribute 21.4% of total loss, rather than dominating it. A flexible
+xgboost model also fails to uncover a large omitted nonlinear signal. These
+checks support--but cannot prove--that 1.145 CV is near the practical floor
+using the observed variables.
 
-To probe whether the hand-chosen interactions in mod8 were the right ones, we fit a **regularized interaction-selection model**: a conditional logit expressed through its stratified-Cox equivalence (choice task = stratum, chosen alternative = event), fit with an L1 (LASSO) penalty via `glmnet` over a pool of 195 candidate interactions — every attribute × segment and attribute × demographic term, plus the price and opt-out interactions. As a correctness check, the strongest penalty reproduces the no-interaction model (mod2b) exactly. At the cross-validated penalty the LASSO independently rediscovered mod8's core structure — segment- and age-varying price sensitivity, gender- and urbanicity-varying opt-out — confirming those interactions are signal rather than overfit padding. It selected a sparser set (13 vs ~21 interactions) and landed slightly behind mod8 on holdout (1.194 vs 1.190) even after an unpenalized relaxed refit, so it serves as validation of mod8's specification rather than an improvement. A hierarchical (mixed-logit) specification that combines this observed heterogeneity with respondent-level random effects remains a natural further step.
+Limitations remain. Stated choices contain unobserved taste and within-person
+inconsistency; train and test respondents differ measurably; absolute CV
+log-loss uncertainty is about 0.01 even though paired model comparisons are
+much tighter; and the private split is both unseen and smaller than the public
+split. Calibration and subgroup checks are descriptive rather than guarantees
+under shift. Finally, design-cell shrinkage and both scoped and price-scale
+latent classes were necessarily finite specifications, so other ranking objectives or richer externally observed
+covariates could still help. Given the two-submission daily limit, however,
+unvalidated leaderboard probing would be less defensible than retaining the
+CV-selected ensemble.
+
+# References
