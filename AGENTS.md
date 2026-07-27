@@ -347,8 +347,9 @@ xgboost idea flagged in the negative-results list above, plus a broader xgboost
 retune and a from-scratch reconstruction of the 2026-07-25 glmnet stratified-Cox
 regularized logit (the original script was never committed). Independently
 reviewed every new script line by line (not just the write-up in
-`codex_findings.md`) before deciding whether to submit -- full review process and
-one confirmed reproducibility caveat in `cleaning_log.md`, 2026-07-27.
+`codex_findings.md`) before deciding whether to submit -- full review process,
+including one stale-artifact inconsistency found and resolved (didn't affect the
+headline numbers below), in `cleaning_log.md`, 2026-07-27.
 
 - **`rank:ndcg` xgboost (real ranking loss, `qid`-grouped by choice task) is a
   genuinely better xgboost**: 1.163610 alone vs. the original's 1.178668,

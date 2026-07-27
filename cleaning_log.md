@@ -1045,26 +1045,31 @@ almost exactly, and the `v11_pred` baseline used for the bootstrap comparison us
 `w = 0.80`, matching `R/submit_ensemble_v11.R`'s actual submission weight exactly
 (not a guess).
 
-**One confirmed reproducibility wrinkle.** `data_processed/codex/rank_cv.csv`
-(written by `codex_rank_xgb.R` itself, in the same loop iteration, moments before
-saving `rank_oof.rds`) reports the `rank:ndcg` config's cross-fitted log loss as
-1.163610 -- also the number quoted in `codex_findings.md`. But recomputing
-`log_loss_matrix(truth, rank_oof)` on the exact same saved `rank_oof.rds[[1]]$pred`
-object from within `codex_glmnet_cox_ensemble.R` (and therefore also inside
-`component_scores.csv` and the final ensemble diagnostics) gives 1.162710 instead --
-a ~0.0009 gap. Traced the code: these two numbers are computed from what should be
-the literal same `pred` matrix in the same script run, so they should be
-bit-identical. The most plausible explanation is xgboost's own documented
-multi-threaded floating-point non-associativity (histogram summation order isn't
-guaranteed identical across runs even with a fixed `seed` param unless `nthread=1`
-is also forced) -- i.e. the `rank_oof.rds` currently on disk most likely reflects a
-slightly different run of the same seeded script than whichever run produced
-`rank_cv.csv`/the write-up numbers, not a code bug. Impact on the headline
-ensemble number is diluted (rank_ndcg carries only ~10% of the final blend weight,
-so a 0.0009 perturbation in its own quality shifts the blend by roughly 0.0001),
-but it means the reported 6-decimal precision throughout `codex_findings.md`
-overstates how exactly reproducible a from-scratch re-run would be -- treat the
-headline numbers as good to about +/-0.0005-0.001, not exact.
+**One confirmed inconsistency, now explained (stale artifact, not nondeterminism).**
+`data_processed/codex/rank_cv.csv` reports the `rank:ndcg` config's cross-fitted
+log loss as 1.163610 -- also the number quoted in `codex_findings.md`. But
+`component_scores.csv` (written by `codex_glmnet_cox_ensemble.R`) recomputes the
+same nominal quantity from `rank_oof.rds[[1]]$pred` and gets 1.162710 instead, a
+~0.0009 gap. Initially suspected xgboost's multi-threaded floating-point
+non-associativity; Codex corrected this and it checks out against the file
+timestamps (`data_processed/codex/`, all times SGT): `component_scores.csv` and
+`cox_oof.rds` were written at 13:10:37, **before** the ranker's temperature
+calibration was cross-fitted -- that fix landed in a later run of
+`codex_rank_xgb.R` that overwrote `rank_oof.rds`/`rank_cv.csv` at 13:18:11.
+`codex_glmnet_cox_ensemble.R` was never re-run afterward to refresh
+`component_scores.csv`, so that one file's `rank_ndcg` row is a stale artifact
+from the pre-calibration-fix version, not a live measurement. **1.163610 (with
+cross-fitted calibration) is the canonical number.** Critically, the actual
+decision-relevant numbers are unaffected: `codex_ensemble_diagnostics.R` (which
+produces `ensemble_meta_cv.csv`/`ensemble_bootstrap.csv`, timestamped 13:19:06)
+reads `rank_oof.rds` directly and runs strictly after its final 13:18:11 write,
+so the headline 4-way blend result (1.144029/1.144363) and the bootstrap CI
+already used the corrected, post-calibration-fix ranker OOF. Sensible hygiene
+fixes going forward: force `nthread=1` for exact run-to-run reproducibility
+regardless, and regenerate every dependent artifact in one uninterrupted
+pipeline run rather than treating intermediate `.rds` files as stable across
+partial re-runs -- but there is no actual uncertainty in the reported headline
+numbers from this issue.
 
 **Results.** Individually: `rank:ndcg` xgboost alone scores 1.163610 (vs the
 original xgboost's 1.178668) and blends with mlogit_m8trpg to 1.144904; retuned
