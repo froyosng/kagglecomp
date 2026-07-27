@@ -1438,3 +1438,97 @@ post-hoc recalibration, and bagging in both directions -- has now been tested
 to the same CV + respondent-bootstrap standard, and none clears the bar. This
 is as close to an exhaustive search as the remaining time before the
 competition closes (2026-08-01) reasonably allows.
+
+## 2026-07-27: A behavioral-modeling round finally clears the bar -- design history, RRM, and a neural ensemble member
+
+Pushed further after the "practical ceiling" conclusion above, asking Codex for
+three genuinely different angles: (1) history/state-dependence effects beyond
+the existing linear task-fatigue trend, (2) Random Regret Minimization, a
+different behavioral paradigm from utility maximization, and (3) a non-tree
+model for real ensemble diversity, since every flexible model tried all day
+has been tree-based. Branch `codex-history-rrm-mlp`, commit `f7bc47c`, merged
+into `zhenhao`. Reviewed all three scripts and the dedicated high-precision
+reconstruction scripts line by line, and cross-checked every number against
+the raw generated CSVs in `data_processed/codex_behavioral_round/` -- exact
+match throughout.
+
+**1. Design-exposure history -- corrected before implementation, still null
+after multiplicity correction.** The original framing (a respondent's actual
+*previous choices* predicting their next one) has a fatal flaw caught before
+Codex built it: a test respondent's full 19-task sequence is unlabeled
+*simultaneously* -- there is no point where past choices are revealed before
+future ones need predicting, so a feature built from observed choice history
+is fundamentally uncomputable at test time, even though it would look
+perfectly fine in CV (training labels exist, so it would silently appear to
+work there). The corrected version uses only the *design* sequence -- which
+alternatives were shown, not which were chosen -- fully observable for both
+train and test. Price-reference variants failed the screen; the best
+surviving specification (attribute-exposure novelty/familiarity/similarity)
+has consistent-sign coefficients across all 5 folds and a fold-cross-fitted
+blend gain of +0.000226573, ordinary bootstrap 95% CI [+0.0000078,
++0.0004471] technically excluding zero. But this was the best of 8 CV-tested
+history variants, and after that selection is accounted for, both the 99% CI
+and a Bonferroni family-wise 95% CI cross zero. Not adopted -- a real but
+too-small-to-call effect once search is priced in.
+
+**2. Random Regret Minimization -- promising screen, null honest CV, but a
+clean implementation.** `apollo` (the standard R package for this) wasn't
+installed, so the regret likelihood and its analytic gradient were
+implemented directly and verified against centered finite differences on 12
+random parameters before trusting anything (max discrepancy <5e-10 -- the
+custom math is correct). Single-split screen was promising (+0.000985 gain),
+but 5-fold CV reverses it for both continuous- and factor-coded price
+variants (honest fold-cross-fitted gains -0.000122 and -0.000226, both CIs on
+the negative side of zero). RRM is a respectable standalone competitor to
+m8trpg (component CV 1.148-1.150) but doesn't add ensemble diversity beyond
+what the existing context/price-gap features already capture -- a different
+theoretical lens arriving at essentially the same information.
+
+**3. A neural net ensemble member -- the first result all day to clear the
+bar.** `keras`/`tensorflow`/`torch` weren't available, so a small
+single-hidden-layer softmax net was built with `nnet` (base R). Screened 9
+size/decay configurations (3 seeds each); confirmed via a diagnostic
+600-iteration rerun that 200 iterations is the right early-stopping point
+(more iterations improved training fit but made validation worse -- textbook
+overfitting, caught before it could contaminate the CV run). Fold-cross-fitted
+blend against the fixed (not re-optimized) `ensemble_v11`: **1.143789442 vs
+1.145094213, gain 0.001304771.** A dedicated high-precision script
+(`R/codex_mlp_precision.R`) reconstructs this from saved OOF predictions with
+hard-asserted baseline checks and runs a 100,000-replicate respondent
+bootstrap: **ordinary 95% CI [+0.000092, +0.002513] -- excludes zero**, 98.24%
+win rate. This is the only result all session to clear that bar. It does not
+survive stricter scrutiny: the 99% CI and a 9-configuration Bonferroni-adjusted
+95% CI (correctly accounting for the fact that 9 architectures were screened
+before this one was picked) both cross zero. An extended 5-family ensemble
+(adding rank-xgboost, retuned xgboost, and glmnet-Cox alongside the MLP)
+reached 1.143129, but its incremental gain over the simple 2-way blend was
+only 0.000661 with a CI crossing zero -- the extra complexity isn't justified.
+
+Independently re-verified beyond the headline numbers: fold-cross-fitted
+weight selection has no leakage (each fold's blend weight chosen using only
+the other 4 folds' data); confirmed via elapsed-time cross-checking across
+every saved fit (200-iteration fits ran ~37-49s, the 600-iteration diagnostic
+rerun took ~105-118s, and every CV-stage fit matches the 200-iteration
+timing profile) that the CV run used the intended 200-iteration cap, not the
+script's unrelated 600-iteration default for a different stage -- and the
+actual submission-file generator hardcodes `max_iterations = 200L` explicitly,
+removing any ambiguity for what would actually be deployed. Also ran the same
+outlier-sensitivity check used on the triple-interaction candidate: the MLP
+blend correlates 0.9965 with `ensemble_v11`'s predictions, with a max
+deviation of 0.07 (vs. 0.61 for the triple-interaction candidate) and zero
+test rows showing a swing >0.15 in any alternative -- a bounded softmax output
+doesn't have the unbounded-product blowup risk that made the triple
+interaction sensitive to extreme-income outliers. Structurally, this is the
+safest candidate produced all day.
+
+**Decision: CV-confirmed candidate, not yet submitted.** This clears the
+project's pre-stated ordinary-CI submission bar -- the first and only lead all
+day to do so across five full rounds of testing. The honest caveat (stricter
+multiplicity-adjusted intervals cross zero) means it should be described as a
+credible, well-verified candidate rather than a guaranteed improvement.
+Recommended as the top-priority candidate for the next available Kaggle
+submission slot, ahead of the triple-interaction and 4-way-ensemble candidates
+already prepared, given it is the only one to clear the baseline bar and the
+most structurally robust to outlier respondents. `submission_codex_mlp_v12_candidate.csv`
+is generated and ready; `ensemble_v11` remains the officially adopted model
+until a submission confirms or refutes this candidate.

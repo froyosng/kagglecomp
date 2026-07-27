@@ -509,6 +509,50 @@ interactions (both hypothesis- and data-driven), recalibration, and bagging
 in both directions -- has been tested to the same standard, and none clears
 the bar. As exhaustive a search as the remaining time reasonably allows.
 
+## CV-confirmed candidate awaiting submission: MLP ensemble diversity (2026-07-27)
+One more round after the above (branch `codex-history-rrm-mlp`, commit
+`f7bc47c`, merged into `zhenhao`) tested three genuinely different angles:
+design-exposure history, Random Regret Minimization, and a non-tree neural
+ensemble member. Independently reviewed and cross-checked every number
+against the raw generated CSVs -- exact match throughout, including a
+gradient-check verification of RRM's custom likelihood (<5e-10 discrepancy
+vs. finite differences).
+
+- **Design-exposure history**: real but too small after multiple-testing
+  correction (99% CI and Bonferroni-adjusted CI both cross zero). Notably,
+  the original idea (actual choice history) had a fatal flaw caught before
+  implementation -- a test respondent's full 19-task sequence is unlabeled
+  simultaneously, so a feature built from observed past choices is
+  uncomputable at test time even though it would look fine in CV. Corrected
+  to use only observable design/exposure sequence instead.
+- **RRM**: promising screen, null-to-negative honest CV. A respectable
+  standalone competitor to m8trpg but no transferable ensemble diversity.
+- **MLP (nnet, single hidden layer, since keras/tensorflow/torch weren't
+  available): the first result all day to clear the ordinary bootstrap-CI
+  bar.** Fold-cross-fitted blend with the fixed ensemble_v11: **1.143789 vs.
+  1.145094 (gain 0.001305)**. High-precision 100,000-replicate bootstrap:
+  **95% CI [+0.000092, +0.002513] -- excludes zero**, 98.24% win rate. Does
+  NOT survive stricter correction (99% CI and a 9-configuration
+  Bonferroni-adjusted CI both cross zero, since 9 architectures were
+  screened). An extended 5-family ensemble reached 1.143129 but wasn't
+  significantly better than the simple 2-way blend -- not worth the extra
+  complexity.
+
+**Structurally the safest candidate produced all session**: correlates 0.9965
+with ensemble_v11's predictions (vs. 0.987 for the triple-interaction
+candidate), max deviation 0.07 (vs. 0.61), zero test rows with any >0.15
+swing -- a bounded softmax output doesn't have the unbounded-product
+outlier-sensitivity risk that affects the triple-interaction candidate.
+`submission_codex_mlp_v12_candidate.csv` is generated (full-data fit, 5
+seeds, 15% weight -- matching the mean of the honestly cross-fitted fold
+weights -- against the exact already-public-scored ensemble_v11 CSV) but
+**not yet submitted**. Recommended as the top-priority candidate for the
+next available submission slot, ahead of the triple-interaction and 4-way
+ensemble candidates prepared earlier, given it is the only one to clear the
+ordinary bootstrap bar and the most robust to outlier respondents.
+`ensemble_v11` remains the officially adopted model until a submission
+confirms or refutes this.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
