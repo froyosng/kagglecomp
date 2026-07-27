@@ -1335,3 +1335,91 @@ premature convergence into "we checked the two most obvious remaining classes
 of technique (recalibration, variance reduction via bagging) and both are
 genuinely exhausted for the model in its current form" -- a stronger claim,
 honestly earned rather than assumed.
+
+## 2026-07-27: Final round -- mlogit bootstrap-bagging, partial pooling, and SHAP-guided interactions
+
+Third and final Codex round of the day (branch `codex-bagging-pooling-shap`,
+commit `ac6e844`, merged into `zhenhao`), bundling the three leads queued after
+the noise-floor/calibration/seed-bagging audit above. Independently reviewed
+all three scripts line by line and cross-checked every reported number against
+the raw generated CSVs in `data_processed/codex_final_round/` -- exact match
+throughout, same clean track record as every prior round.
+
+**1. Bootstrap-bagging the dominant m8trpg component -- bagging genuinely
+hurts here.** Following directly from the xgboost seed-bagging result (real
+effect, but on the wrong/minority-weight component), this bagged the
+*dominant* 80%-weight mlogit component instead: 15 bootstrap resamples of
+respondents per canonical CV fold (`R/codex_mlogit_bagging.R`), each
+resample relabeling duplicated respondents with a synthetic `Case`/`No`/
+`chid` to avoid ID collisions in `dfidx` -- verified this relabeling is
+correct and defensively asserted (unique `chid` per resampled-respondent-
+task, exactly 19 complete 4-alternative tasks per synthetic respondent; all
+75 bootstrap fits across 15 bags x 5 folds succeeded on the first attempt).
+Result: **bagging makes m8trpg WORSE**, not better -- 15-bag average
+1.147764 vs single-fit 1.147021 (-0.000743); blended, 1.145658 vs
+ensemble_v11's 1.145094 (-0.000563). Every point on the 1-to-15-bag learning
+curve is on the harmful side, and 15 bags is the *least* harmful count tested
+(not a cherry-picked stopping point) -- bootstrap CI [-0.001611, 0.000451]
+for the blend crosses zero but the direction is consistently negative.
+Interpretation: bagging reduces variance most for high-variance, unstable,
+greedy learners like decision trees. A conditional-logit MLE with ~85
+parameters on ~907 respondents is already a smooth, comparatively low-
+variance estimator; resampling respondents with duplication injects
+finite-sample coefficient noise/bias that outweighs any averaging benefit.
+A genuinely useful, somewhat counterintuitive result: bagging is not a
+universal remedy, and applying it to an already-stable parametric estimator
+can actively hurt.
+
+**2. Partial pooling for segment slopes -- independently confirms full
+pooling is correct.** Extended the glmnet stratified-Cox equivalence with
+the *full* m8trpg design as unpenalized core (a more direct comparison than
+the earlier standalone-Cox version) plus new penalized candidates
+(`Price x segment x z(mileage)`, `Price x segment x z(income)`, both
+jointly), letting nested respondent-grouped CV pick both the elastic-net
+`alpha` (0=ridge to 1=LASSO) and `lambda`. All three candidate sets selected
+ridge (alpha=0, by lowest inner CV deviance) but the chosen penalty strength
+drove every new coefficient to ~1e-40 -- genuinely, numerically zero, not a
+small residual effect. Held-out loss (1.159721) matches m8trpg (1.159681) up
+to optimizer-level noise. No candidate passed the screen. This is a
+materially useful negative: it corroborates, via a *completely different*
+estimation method (penalized Cox-equivalent likelihood vs. raw mlogit MLE),
+the same conclusion as the earlier fully-unpooled segment-slope experiment --
+there is no exploitable segment-specific mileage/income heterogeneity beyond
+what the continuous covariate interactions already capture, at any nonzero
+magnitude the data will support. Two independent methods agreeing is
+stronger evidence than either alone.
+
+**3. SHAP-guided interaction discovery -- finds real structure, still too
+weak.** The first data-driven (not human-hypothesis-driven) interaction
+search of the project: exact multiclass SHAP interaction values from the
+reference wide-format xgboost (fit only on screen-training respondents,
+`nthread=1` for determinism), aggregated over 100 sampled respondents in
+memory-bounded batches, restricted to genuinely continuous/ordinal
+covariates (categorical codes like segment/region correctly excluded),
+deduplicated across coarse/fine encodings of the same concept, and filtered
+against the 3 already-tested pairs (income x age/mileage/night, cross-checked
+against `submissions_log.csv`). Of the top 8 untried pairs by SHAP rank, 4
+beat the single-split screen (age x mileage, education x mileage, mileage x
+urbanicity, age x gender) and were CV-confirmed. Best candidate, mileage x
+urbanicity, blended: 1.144976 vs ensemble_v11's 1.145094 (+0.000118),
+bootstrap CI [-0.001228, 0.001431] -- crosses zero, the smallest and least
+confident positive estimate of the whole day. The other three were net
+negative in the blend. Confirms SHAP successfully nominates genuine
+nonlinear structure (unlike a random guess, it consistently surfaced
+candidates that beat the screen) but the dataset's remaining nonlinear
+signal is uniformly too weak to distinguish from noise, whether the
+interaction is hypothesis-driven or data-nominated.
+
+**Decision: none adopted, no submission made.** `ensemble_v11` remains the
+best and current submission. This closes out the deepest single-day modeling
+push of the project -- six independently-verified experiments in this final
+stretch alone (noise-floor check, post-hoc calibration, xgboost seed-bagging,
+mlogit bootstrap-bagging, partial pooling, SHAP-guided interactions), on top
+of the four earlier Codex rounds (4-way ensemble, shift-refit + attribute
+ranks, continuous triple interactions). Every genuinely new mechanism tried --
+model-family diversity, distribution-shift correction, choice-set rank
+features, higher-order interactions (both hypothesis- and data-driven),
+post-hoc recalibration, and bagging in both directions -- has now been tested
+to the same CV + respondent-bootstrap standard, and none clears the bar. This
+is as close to an exhaustive search as the remaining time before the
+competition closes (2026-08-01) reasonably allows.

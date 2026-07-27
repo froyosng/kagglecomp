@@ -478,6 +478,37 @@ the two most obvious remaining technique classes (recalibration, bagging) and
 both are genuinely exhausted," which is a stronger, more honestly-earned
 claim. Full detail in `cleaning_log.md`, 2026-07-27.
 
+## Resolved: final round -- mlogit bagging, partial pooling, SHAP interactions (2026-07-27)
+Third and final Codex round of the day (branch `codex-bagging-pooling-shap`,
+commit `ac6e844`, merged into `zhenhao`). Independently reviewed and
+cross-checked every number against the raw generated CSVs -- exact match.
+
+- **Bootstrap-bagging the dominant m8trpg component: genuinely hurts.**
+  Unlike xgboost, bagging the 80%-weight mlogit component makes it *worse*
+  (15-bag blend 1.145658 vs. ensemble_v11's 1.145094) -- every point on the
+  1-15 bag learning curve is on the harmful side. A conditional-logit MLE is
+  already a smooth, low-variance estimator; bootstrap resampling injects more
+  noise than it removes. Bagging is not a universal remedy.
+- **Partial pooling of segment slopes: independently confirms full pooling.**
+  A completely different estimation method (penalized Cox-equivalent
+  likelihood, ridge selected by nested CV) shrinks every new segment
+  deviation to ~1e-40 -- genuinely zero. Agrees with the earlier fully-
+  unpooled segment experiment via an independent method: no exploitable
+  segment heterogeneity exists here at any magnitude.
+- **SHAP-guided interaction discovery: finds real structure, still too
+  weak.** The project's first data-driven (not hypothesis-driven) interaction
+  search. Best candidate (mileage x urbanicity) blended: 1.144976 vs.
+  1.145094 (+0.000118), bootstrap CI [-0.001228, 0.001431] -- the smallest,
+  least confident positive estimate of the day.
+
+**Not adopted; no submission made.** This closes the deepest single-day
+modeling push of the project: six independently-verified experiments in this
+final stretch, on top of three earlier full Codex rounds. Every genuinely new
+mechanism -- model diversity, shift correction, rank features, higher-order
+interactions (both hypothesis- and data-driven), recalibration, and bagging
+in both directions -- has been tested to the same standard, and none clears
+the bar. As exhaustive a search as the remaining time reasonably allows.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
