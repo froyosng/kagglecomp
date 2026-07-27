@@ -1,0 +1,185 @@
+---
+title: "Ensemble: factors-MNL + xgboost (mnl+xgb)"
+output: html_document
+date: "2026-07-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Average the probabilities of the factors-MNL (1.20174) and xgboost v2 (1.18629).
+Different error patterns usually make the blend beat both. Validated on the same
+20 respondent-level splits, then refit on all train to write + log the
+submission `mnl+xgb`.
+
+# Setup
+
+```{r}
+library(mlogit)
+library(xgboost)
+
+train <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/train.csv")
+test  <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/test.csv")
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+test$Choice  <- 1L
+
+attrs <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+           "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+vars  <- c(attrs, "Price")
+ftr   <- c("NS","BU","FP","SC","MA","LB")   # factored attributes for the MNL
+
+log_loss <- function(actual, pred, eps = 1e-15) {
+  actual <- as.matrix(actual); pred <- as.matrix(pred)
+  stopifnot(all(dim(actual) == dim(pred)))
+  pred <- pred / rowSums(pred); pred <- pmin(pmax(pred, eps), 1 - eps)
+  -mean(rowSums(actual * log(pred)))
+}
+one_hot <- function(v) { m <- matrix(0, length(v), 4); m[cbind(seq_along(v), v)] <- 1; m }
+
+# long + difference features for xgb
+make_long_diff <- function(df) {
+  n <- nrow(df); rows <- vector("list", 4)
+  for (j in 1:4) {
+    out <- data.frame(chid = seq_len(n), Case = df$Case, alt = j)
+    for (v in vars) out[[v]] <- df[[paste0(v, j)]]
+    rows[[j]] <- out
+  }
+  long <- do.call(rbind, rows); long <- long[order(long$chid, long$alt), ]
+  for (v in vars) long[[paste0(v,"_d")]] <- long[[v]] - ave(long[[v]], long$chid, FUN = mean)
+  long$is_optout <- as.integer(long$alt == 4)
+  long
+}
+feats <- c(paste0(vars, "_d"), "is_optout")
+```
+
+# Per-split: fit both models, average, score each + the ensemble
+
+```{r}
+run_ensemble <- function(seed, w = 0.5, max_depth = 4, eta = 0.05, nrounds = 400) {
+  set.seed(seed)
+  vc  <- sample(unique(train$Case), round(0.20*length(unique(train$Case))))
+  fit <- subset(train, !(Case %in% vc)); val <- subset(train, Case %in% vc)
+  truth <- one_hot(val$Choice)
+
+  ## ---- MNL (factors) ----
+  fitM <- fit; valM <- val
+  for (a in ftr) for (j in 1:4) {
+    col <- paste0(a,j); tab <- table(fitM[[col]])
+    keep <- as.numeric(names(tab)[tab>=30]); modal <- as.numeric(names(which.max(tab)))
+    fitM[[col]][!(fitM[[col]] %in% keep)] <- modal
+    valM[[col]][!(valM[[col]] %in% keep)] <- modal
+  }
+  Sf <- dfidx(fitM, shape="wide", choice="Choice", sep="", varying=c(4:83), idx=c("No","Case"))
+  Sv <- dfidx(valM, shape="wide", choice="Choice", sep="", varying=c(4:83), idx=c("No","Case"))
+  for (a in ftr) { Sf[[a]] <- factor(Sf[[a]]); Sv[[a]] <- factor(Sv[[a]], levels=levels(Sf[[a]])) }
+  M <- mlogit(as.formula(paste("Choice ~", paste(c(attrs,"Price"),collapse="+"), "- 1")), data=Sf)
+  P_mnl <- predict(M, newdata = Sv)                       # n_task x 4
+
+  ## ---- xgboost ----
+  Lf <- make_long_diff(fit); Lv <- make_long_diff(val)
+  yf <- as.integer(Lf$alt == fit$Choice[Lf$chid])
+  m  <- xgb.train(list(objective="binary:logistic", eval_metric="logloss",
+                       max_depth=max_depth, eta=eta, subsample=0.8, colsample_bytree=0.8),
+                  xgb.DMatrix(as.matrix(Lf[,feats]), label=yf), nrounds=nrounds, verbose=0)
+  pv <- predict(m, xgb.DMatrix(as.matrix(Lv[,feats])))
+  pv <- pv / ave(pv, Lv$chid, FUN = sum)
+  P_xgb <- matrix(pv, ncol = 4, byrow = TRUE)             # n_task x 4
+
+  ## ---- ensemble ----
+  P_ens <- w * P_mnl + (1 - w) * P_xgb
+  P_ens <- P_ens / rowSums(P_ens)
+
+  c(mnl = log_loss(truth, P_mnl),
+    xgb = log_loss(truth, P_xgb),
+    ens = log_loss(truth, P_ens))
+}
+```
+
+# Stability over 20 splits (and try a couple of blend weights)
+
+```{r}
+seeds <- 1:20
+res <- sapply(seeds, function(s) tryCatch(run_ensemble(s, w = 0.5),
+                                          error=function(e){message(e); c(NA,NA,NA)}))
+res <- res[, colSums(is.na(res)) == 0, drop = FALSE]
+
+summ <- function(x) c(mean=round(mean(x),5), sd=round(sd(x),5),
+                      min=round(min(x),5), max=round(max(x),5))
+tab <- rbind(mnl = summ(res["mnl",]),
+             xgb = summ(res["xgb",]),
+             ensemble = summ(res["ens",]))
+tab
+```
+
+```{r}
+# quick weight sweep on the ensemble (mean log-loss only)
+for (w in c(0.3, 0.4, 0.5, 0.6, 0.7)) {
+  r <- sapply(seeds, function(s) tryCatch(run_ensemble(s, w=w)["ens"], error=function(e) NA))
+  cat("w(MNL)=", w, " ensemble mean log-loss:", round(mean(r, na.rm=TRUE),5), "\n")
+}
+```
+
+# Refit BOTH on all train, average test predictions, write submission
+
+```{r}
+## MNL on all train (with level alignment to test) ----
+level_map <- list()
+for (a in ftr) {
+  allv <- unlist(train[, paste0(a,1:4)]); tb <- table(allv)
+  level_map[[a]] <- list(keep=as.numeric(names(tb)[tb>=30]),
+                         modal=as.numeric(names(which.max(tb))))
+}
+collapse_rare <- function(df) {
+  for (a in ftr) for (j in 1:4) {
+    col <- paste0(a,j)
+    df[[col]][!(df[[col]] %in% level_map[[a]]$keep)] <- level_map[[a]]$modal
+  }; df
+}
+trM <- collapse_rare(train); teM <- collapse_rare(test)
+S_all  <- dfidx(trM, shape="wide", choice="Choice", sep="", varying=c(4:83), idx=c("No","Case"))
+S_test <- dfidx(teM, shape="wide", choice="Choice", sep="", varying=c(4:83), idx=c("No","Case"))
+for (a in ftr) { S_all[[a]] <- factor(S_all[[a]]); S_test[[a]] <- factor(S_test[[a]], levels=levels(S_all[[a]])) }
+Mfull <- mlogit(as.formula(paste("Choice ~", paste(c(attrs,"Price"),collapse="+"), "- 1")), data=S_all)
+P_mnl_test <- predict(Mfull, newdata = S_test)
+
+## xgb on all train ----
+Lall <- make_long_diff(train); Ltest <- make_long_diff(test)
+yall <- as.integer(Lall$alt == train$Choice[Lall$chid])
+mfull <- xgb.train(list(objective="binary:logistic", eval_metric="logloss",
+                        max_depth=4, eta=0.05, subsample=0.8, colsample_bytree=0.8),
+                   xgb.DMatrix(as.matrix(Lall[,feats]), label=yall), nrounds=400, verbose=0)
+pv <- predict(mfull, xgb.DMatrix(as.matrix(Ltest[,feats])))
+pv <- pv / ave(pv, Ltest$chid, FUN = sum)
+P_xgb_test <- matrix(pv, ncol = 4, byrow = TRUE)
+
+## ensemble (use the best weight from the sweep; default 0.5) ----
+W <- 0.5
+P_ens_test <- W * P_mnl_test + (1 - W) * P_xgb_test
+P_ens_test <- P_ens_test / rowSums(P_ens_test)
+
+sample_sub <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/sample_submission.csv")
+submission <- data.frame(No=test$No, Ch1=P_ens_test[,1], Ch2=P_ens_test[,2],
+                         Ch3=P_ens_test[,3], Ch4=P_ens_test[,4])
+stopifnot(all(names(submission)==names(sample_sub)), all(submission$No==sample_sub$No), !anyNA(submission))
+cat("row-sum range:", range(rowSums(submission[,-1])), "\n")
+if (!dir.exists("submissions")) dir.create("submissions")
+write.csv(submission, "submissions/submission_mnl_xgb.csv", row.names = FALSE)
+cat("Wrote submissions/submission_mnl_xgb.csv\n")
+```
+
+# Log it
+
+```{r}
+ens_mean <- tab["ensemble","mean"]; ens_sd <- tab["ensemble","sd"]
+path <- "/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/submissions_log.csv"; log <- read.csv(path, stringsAsFactors = FALSE)
+new  <- data.frame(
+  date=as.character(Sys.Date()), model_name="mnl+xgb",
+  description=sprintf("Ensemble: %.2f*factors-MNL + %.2f*xgboost(depth4,eta0.05,400) probabilities, per-task normalized", W, 1-W),
+  source_citation="own experiment (mlogit + xgboost)",
+  cv_logloss=ens_mean, public_lb_logloss=NA, gap=NA,
+  notes=sprintf("resp-level 20-split ensemble mean %.5f sd %.5f. Beats MNL(1.202) and xgb(1.186) if lower.", ens_mean, ens_sd),
+  stringsAsFactors=FALSE)
+write.csv(rbind(log, new), path, row.names = FALSE)
+cat("Logged mnl+xgb | ensemble mean", ens_mean, "sd", ens_sd, "\n")
+```
