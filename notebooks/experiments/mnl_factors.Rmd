@@ -1,0 +1,148 @@
+---
+title: "Final submission - MNL with selective factor attributes"
+output: html_document
+date: "2026-07-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Refit the winning "factors" MNL on ALL training data, predict the test set, and
+write the Kaggle submission. Respondent-level stability run gave
+**mean 1.20174, sd 0.01527** → expected leaderboard roughly **1.187–1.217**
+(mean +/- 1 sd).
+
+Caution handled: factor levels (and rare-level collapsing) are learned on the
+FULL training data and applied to test with the SAME levels, so there is no
+level-mismatch error.
+
+# Load
+
+```{r}
+library(mlogit)
+train <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/train.csv")
+test  <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/test.csv")
+
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+test$Choice  <- 1L
+
+attrs    <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+              "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+attr_rhs <- paste(c(attrs, "Price"), collapse = "+")
+
+ftr <- c("NS","BU","FP","SC","MA","LB")   # the 6 factored attributes
+```
+
+# Collapse rare levels — learned on TRAIN, applied to TEST identically
+
+```{r}
+# For each factored attribute's 4 alternative columns, find the levels that are
+# common enough in TRAIN (>= 30), and the modal level. Store them so we apply
+# the EXACT same mapping to test (this is the caution being handled).
+level_map <- list()
+for (a in ftr) {
+  # pool all 4 alternative columns of this attribute across train to decide levels
+  allvals <- unlist(train[, paste0(a, 1:4)])
+  tab   <- table(allvals)
+  keep  <- as.numeric(names(tab)[tab >= 30])
+  modal <- as.numeric(names(which.max(tab)))
+  level_map[[a]] <- list(keep = keep, modal = modal)
+}
+
+collapse_rare <- function(df) {
+  for (a in ftr) {
+    keep  <- level_map[[a]]$keep
+    modal <- level_map[[a]]$modal
+    for (j in 1:4) {
+      col <- paste0(a, j)
+      df[[col]][!(df[[col]] %in% keep)] <- modal
+    }
+  }
+  df
+}
+
+train <- collapse_rare(train)
+test  <- collapse_rare(test)   # SAME keep/modal from train
+```
+
+# Refit the factors MNL on ALL training data
+
+```{r}
+S_all  <- dfidx(train, shape="wide", choice="Choice", sep="",
+                varying = c(4:83), idx = c("No","Case"))
+S_test <- dfidx(test,  shape="wide", choice="Choice", sep="",
+                varying = c(4:83), idx = c("No","Case"))
+
+# factor the 6 attributes; store train levels and apply the SAME to test
+for (a in ftr) {
+  S_all[[a]]  <- factor(S_all[[a]])
+  S_test[[a]] <- factor(S_test[[a]], levels = levels(S_all[[a]]))  # <- alignment
+}
+
+M_full <- mlogit(as.formula(paste("Choice ~", attr_rhs, "- 1")), data = S_all)
+summary(M_full)
+```
+
+# Predict test
+
+```{r}
+test_prob <- predict(M_full, newdata = S_test)
+dim(test_prob)                 # 4997 x 4
+summary(rowSums(test_prob))    # all 1
+cat("any NA in predictions:", anyNA(test_prob), "\n")
+```
+
+# Build, check, write submission
+
+```{r}
+sample_sub <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/sample_submission.csv")
+submission <- data.frame(No = test$No,
+                         Ch1 = test_prob[,1], Ch2 = test_prob[,2],
+                         Ch3 = test_prob[,3], Ch4 = test_prob[,4])
+
+stopifnot(all(names(submission) == names(sample_sub)))
+stopifnot(all(submission$No == sample_sub$No))
+stopifnot(!anyNA(submission))
+cat("rows:", nrow(submission), " row-sum range:", range(rowSums(submission[,-1])), "\n")
+
+if (!dir.exists("submissions")) dir.create("submissions")
+write.csv(submission, "submissions/submission_factors.csv", row.names = FALSE)
+cat("Wrote submissions/submission_factors.csv\n")
+```
+
+# Log the submission (with the stability range)
+
+```{r}
+mean_ll <- 1.20174
+sd_ll   <- 0.01527
+range_txt <- sprintf("expected ~%.3f (sd %.3f; ~%.3f-%.3f)",
+                     mean_ll, sd_ll, mean_ll - sd_ll, mean_ll + sd_ll)
+
+path <- "/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/submissions_log.csv"
+log  <- read.csv(path, stringsAsFactors = FALSE)
+new  <- data.frame(
+  date              = as.character(Sys.Date()),
+  model_name        = "mnl_factors",
+  description       = "MNL with selective factor attributes (NS,BU,FP,SC,MA,LB; rare levels<30 collapsed to modal), refit on all train",
+  source_citation   = "Class material (mlogit / dfidx)",
+  cv_logloss        = mean_ll,
+  public_lb_logloss = NA, gap = NA,
+  notes             = paste("Respondent-level 20-split stability:", range_txt,
+                            "| levels learned on train, applied to test."),
+  stringsAsFactors  = FALSE
+)
+write.csv(rbind(log, new), path, row.names = FALSE)
+cat("Logged mnl_factors |", range_txt, "\n")
+```
+
+# After Kaggle: record the public score and see if it lands in range
+
+```{r eval=FALSE}
+log <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/submissions_log.csv", stringsAsFactors = FALSE)
+i <- which(log$model_name == "mnl_factors")[1]
+log$public_lb_logloss[i] <- 0.000   # <- Kaggle public score here
+log$gap[i] <- log$public_lb_logloss[i] - log$cv_logloss[i]
+write.csv(log, "/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/submissions_log.csv", row.names = FALSE)
+cat("public:", log$public_lb_logloss[i], "| expected ~1.187-1.217\n")
+```

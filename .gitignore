@@ -38,6 +38,7 @@ submissions/*.csv
 !submissions/submission_log.csv
 !submissions/submission_mnl.csv       # add lines for the ones you want
 !submissions/submission_ensemble.csv
+!submissions/submission_factors.csv
 
 # Generated figures
 figures/*
