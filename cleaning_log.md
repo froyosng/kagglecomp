@@ -994,3 +994,105 @@ rather than wrong. This closes the latent-class investigation properly: both the
 safe (task-fatigue, unstable) and central (price-sensitivity, stable-but-redundant)
 versions have now been tested to the same standard as the project's confirmed wins,
 and neither survives. Not adopted; ensemble_v11 remains the best model.
+
+## 2026-07-27: Reviewing Codex's modeling push -- ranking xgboost, retuned xgboost, reconstructed glmnet-Cox, and a 4-way ensemble candidate
+
+Asked Codex (a separate coding agent) to work on its own branch (`codex-modeling`,
+commit `b37ecc8`) toward a genuine push below 1.200 public, using the "genuinely
+still open" leads already flagged in AGENTS.md's negative-results list -- most
+notably a real ranking-loss xgboost objective, which the earlier "choice-structured
+xgboost" attempt (naive binary renormalization) never tried. Nothing in the
+existing `R/` scripts or logs was touched; Codex worked only in 5 new
+`R/codex_*.R` files plus `codex_findings.md`. Reviewed the actual code line by
+line rather than taking the write-up on faith, per the instruction to
+independently verify before deciding whether to submit.
+
+**What Codex built, and what checked out.** `R/codex_modeling_common.R` reuses the
+canonical fold split (`fold_of_case` from `data_processed/oof_ensemble_v10.rds`,
+never regenerated) and provides shared truth/OOF matrix builders plus a
+softmax-weight blend-search utility -- sound on inspection.
+`R/codex_rank_xgb.R` fits genuine `rank:ndcg`/`rank:pairwise` xgboost with `qid`
+grouping by choice task (the real ranking-loss approach the earlier null result
+never tried), converting margins to probabilities via a **cross-fitted** softmax
+temperature (scale learned on 4 folds, applied to the 5th, so no fold calibrates
+its own conversion). `R/codex_xgb_retune.R` re-screens xgboost's own
+hyperparameters more broadly than the original ensemble_v11 search.
+`R/codex_glmnet_cox_ensemble.R` rebuilds the 2026-07-25 stratified-Cox regularized
+conditional logit from scratch (the original script was never committed) and adds
+proper nested 5-fold CV it never had; the reconstructed design matrix was checked
+via `stopifnot` to match the original's exact 63-core/195-candidate column counts,
+and correctly uses a **raw** softmax (no temperature) to convert the Cox linear
+predictor to probabilities -- correct precisely because the stratified-Cox/
+conditional-logit equivalence is exact, unlike the ranking margins which have no
+such guarantee and legitimately need calibration. `R/codex_ensemble_diagnostics.R`
+combines all four OOF sources (mlogit, original xgboost, rank:ndcg, retuned
+xgboost, glmnet-Cox) into every candidate pool, selects weights via convex
+optimization (softmax-parameterized, so weights are automatically non-negative and
+sum to 1), and runs a respondent-clustered bootstrap matching the methodology
+already established in `R/bootstrap_cv_uncertainty.R`.
+
+Traced every OOF alignment path by hand (all three new components use the same
+`match(..., train$No)`-based pattern to fill an `nrow(train)`-row matrix in
+canonical row order) and confirmed the nested/cross-fitted weight selection has no
+leakage: for each outer fold, the blend weights used on that fold's held-out rows
+are fit only on the other four folds' OOF predictions and truth. Independently
+recomputed everything from the actual saved intermediate files (`data_processed/codex/*.rds`,
+gitignored but still present on disk from Codex's run) rather than trusting the
+prose. Cross-checked several numbers against independent sources rather than just
+internal consistency: the reconstructed 2-way (mlogit+xgboost) blend's global OOF
+log loss (1.14506) matches the officially-logged ensemble_v11 CV number (1.145094)
+almost exactly, and the `v11_pred` baseline used for the bootstrap comparison uses
+`w = 0.80`, matching `R/submit_ensemble_v11.R`'s actual submission weight exactly
+(not a guess).
+
+**One confirmed reproducibility wrinkle.** `data_processed/codex/rank_cv.csv`
+(written by `codex_rank_xgb.R` itself, in the same loop iteration, moments before
+saving `rank_oof.rds`) reports the `rank:ndcg` config's cross-fitted log loss as
+1.163610 -- also the number quoted in `codex_findings.md`. But recomputing
+`log_loss_matrix(truth, rank_oof)` on the exact same saved `rank_oof.rds[[1]]$pred`
+object from within `codex_glmnet_cox_ensemble.R` (and therefore also inside
+`component_scores.csv` and the final ensemble diagnostics) gives 1.162710 instead --
+a ~0.0009 gap. Traced the code: these two numbers are computed from what should be
+the literal same `pred` matrix in the same script run, so they should be
+bit-identical. The most plausible explanation is xgboost's own documented
+multi-threaded floating-point non-associativity (histogram summation order isn't
+guaranteed identical across runs even with a fixed `seed` param unless `nthread=1`
+is also forced) -- i.e. the `rank_oof.rds` currently on disk most likely reflects a
+slightly different run of the same seeded script than whichever run produced
+`rank_cv.csv`/the write-up numbers, not a code bug. Impact on the headline
+ensemble number is diluted (rank_ndcg carries only ~10% of the final blend weight,
+so a 0.0009 perturbation in its own quality shifts the blend by roughly 0.0001),
+but it means the reported 6-decimal precision throughout `codex_findings.md`
+overstates how exactly reproducible a from-scratch re-run would be -- treat the
+headline numbers as good to about +/-0.0005-0.001, not exact.
+
+**Results.** Individually: `rank:ndcg` xgboost alone scores 1.163610 (vs the
+original xgboost's 1.178668) and blends with mlogit_m8trpg to 1.144904; retuned
+xgboost alone scores 1.176029 and blends to 1.144610; the reconstructed glmnet-Cox
+scores 1.164331 alone and takes a stable 9-13% weight in every blend it enters
+(more stable across folds than the two xgboost variants). The best overall pool
+(mlogit 68% / rank:ndcg 10% / retuned xgboost 12% / glmnet-Cox 11%) scores
+1.144029 with in-sample-optimized weights and **1.144363 under honest
+fold-cross-fitted weight selection**, vs. ensemble_v11's official 1.145094 -- a
+~0.0007 gain. A respondent-clustered bootstrap (1000 resamples of the 1135
+training respondents) puts this at mean gain 0.000742, win rate 93.3%, **95% CI
+[-0.000214, 0.001775] -- the interval crosses zero.**
+
+**Decision: not adopted, no submission made.** Two independent reasons, not one.
+First, the bootstrap CI includes zero -- by this project's own established
+standard for treating a result as real (see the bootstrap-uncertainty section
+above), a gain whose CI crosses zero is not distinguishable from noise. Second,
+and separately, this project has already confirmed (see the CV-to-public gap
+table in AGENTS.md and the `mlogit_m8trpg_standalone` result) that adding model
+complexity here tends to WIDEN the public-leaderboard generalization gap even when
+CV genuinely improves -- and this candidate roughly doubles the model count behind
+the current best (2 components -> 4) for a gain that isn't even confidently real
+in CV, let alone likely to survive the public-LB discount this project has
+observed at every previous complexity increase. If a future result clears both
+bars at once (CI clearly excluding zero, and not adding meaningfully more moving
+parts) it would be worth a submission slot; this one doesn't. All 5
+`R/codex_*.R` scripts and `codex_findings.md` are kept in the repo for
+reproducibility/transparency, consistent with every other tested-but-not-adopted
+model in this project (task-fatigue latent class, stacking, K-means personas,
+design-cell shrinkage, etc.) -- a well-executed, honestly-reported null result is
+still worth keeping on record.

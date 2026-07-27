@@ -339,6 +339,42 @@ teammate reporting a competing team's public score of 1.187 (only 0.015 below
 ours, not the "low-1.1x" gap originally assumed) -- this test doesn't explain
 that score; it remains open.
 
+## Resolved: Codex modeling push (2026-07-27) -- 4-way ensemble candidate, not adopted
+Asked Codex (a separate coding agent, working in isolation on branch
+`codex-modeling`, commit `b37ecc8`, now merged into `zhenhao`) to push toward a
+genuine sub-1.200 public score using the "genuinely still open" ranking-objective
+xgboost idea flagged in the negative-results list above, plus a broader xgboost
+retune and a from-scratch reconstruction of the 2026-07-25 glmnet stratified-Cox
+regularized logit (the original script was never committed). Independently
+reviewed every new script line by line (not just the write-up in
+`codex_findings.md`) before deciding whether to submit -- full review process and
+one confirmed reproducibility caveat in `cleaning_log.md`, 2026-07-27.
+
+- **`rank:ndcg` xgboost (real ranking loss, `qid`-grouped by choice task) is a
+  genuinely better xgboost**: 1.163610 alone vs. the original's 1.178668,
+  confirming this specific idea (naive binary renormalization had failed; a real
+  ranking objective doesn't have the same problem). Retuning xgboost's own
+  hyperparameters more broadly helps similarly little (1.176029).
+- **The reconstructed glmnet-Cox model** (1.164331, nested 5-fold CV) is a new,
+  more rigorous result than the original single-split-only version, and takes a
+  stable 9-13% weight in every ensemble it enters.
+- **Best 4-way blend (mlogit 68% / rank:ndcg 10% / retuned xgboost 12% /
+  glmnet-Cox 11%): 1.144363 under honest fold-cross-fitted weight selection**,
+  vs. ensemble_v11's official 1.145094 -- a ~0.0007 gain. A respondent-clustered
+  bootstrap (1000 resamples, same method as the bootstrap-uncertainty section
+  above) puts this at mean gain 0.000742, win rate 93.3%, **95% CI
+  [-0.000214, 0.001775] -- crosses zero.**
+
+**Not adopted; no Kaggle submission made.** Two independent reasons: the
+bootstrap CI includes zero (not distinguishable from noise by this project's own
+established standard), and separately, this candidate roughly doubles the model
+count behind the current best (2 components -> 4) at a moment when the project
+has already confirmed that added complexity here tends to WIDEN the public-LB
+gap even when CV improves (see the gap table above) -- exactly the wrong
+direction to bet a submission slot on for an unconfirmed CV gain. All 5
+`R/codex_*.R` scripts and `codex_findings.md` are kept in the repo for
+reproducibility, same as every other tested-but-not-adopted model here.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
@@ -362,18 +398,26 @@ that score; it remains open.
   Her K-means "persona" clustering idea was re-tested as a logit heterogeneity
   axis (see negative results above) -- didn't transfer, but was a legitimate
   idea worth checking.
+- `competition_report.qmd` was rewritten by Codex on branch `report-rewrite`
+  (commit `cb42fe7`) and merged into `zhenhao` (commit `95ce340`); it now covers
+  ensemble_v11 as best model, the identification findings, and the
+  public-vs-private gap discussion. ~20 specific numbers fact-checked against
+  the actual logs -- all matched. Still needs a PDF render (no Quarto/TeX in
+  this environment; use RStudio/Positron's bundled Quarto, or install
+  Quarto+TinyTeX here) and a wording/layout pass before submission.
+- Codex's modeling push (`codex-modeling`, commit `b37ecc8`) is also merged into
+  `zhenhao` -- see the section above. Not adopted as the new best model, but the
+  scripts and write-up are kept for reproducibility.
 
 ## Next steps
-1. Update `competition_report.qmd` -- currently stale, still features mod8 as
-   best. Needs: ensemble_v11 as best model, the price-factor/price-gap findings
-   with the identification story (good technical narrative for the report), the
-   test-respondent-disjointness insight, the calibration/error diagnostic as
-   evidence for the limitations section, and the growing CV-to-public gap for
-   the public-vs-private section.
+1. Render `competition_report.qmd` to PDF and do a final wording/layout pass
+   (no Quarto/TeX available in this environment yet).
 2. Only 2 Kaggle submissions/day (shared team-wide) -- use CV to decide what's
    worth a slot. Clarence's model still needs a fixed validation split before
    it's worth trusting or submitting.
 3. If a genuinely different structural idea surfaces (see "open question"
    above), it's worth testing -- but exhaust it via CV before assuming it's a
    real gain, given how many individually-significant terms have turned out to
-   hurt validation this session.
+   hurt validation this session. The bar for spending a submission slot: the
+   respondent-bootstrap CI must clearly exclude zero, not just have a positive
+   point estimate (see the Codex ensemble candidate above for why this matters).
