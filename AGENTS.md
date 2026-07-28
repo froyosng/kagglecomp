@@ -638,6 +638,19 @@ specific stacking rationale rather than a single untested lever.
   Her K-means "persona" clustering idea was re-tested as a logit heterogeneity
   axis (see negative results above) -- didn't transfer, but was a legitimate
   idea worth checking.
+- Imelda's `mnl+xgb` (branch `imelda`, `notebooks/experiments/ensemble_mnl_xgb.Rmd`)
+  submitted 2026-07-28: public **1.255**. Unlike Clarence's/Zeening's, her
+  internal validation IS respondent-grouped (20 splits sampling unique `Case`)
+  and honestly gave 1.18616 -- yet the gap (0.06884) is the LARGEST of any
+  properly-validated model in the project, bigger than this project's own
+  standalone-mlogit gap (0.066). Plausible (not confirmed) structural reasons:
+  her formula has zero respondent-covariate interactions at all (this
+  project's single biggest source of legitimate gains), only 6 of 19
+  attributes are factor-coded (rest linear/continuous), and her xgboost uses
+  the same binary-renormalization architecture this project found null. A
+  genuinely useful independent data point for the report's generalization-gap
+  discussion: sound validation methodology alone doesn't guarantee a small
+  gap on this dataset.
 - `competition_report.qmd` was rewritten by Codex on branch `report-rewrite`
   (commit `cb42fe7`) and merged into `zhenhao` (commit `95ce340`); it now covers
   ensemble_v11 as best model, the identification findings, and the

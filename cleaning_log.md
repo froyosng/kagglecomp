@@ -1678,3 +1678,56 @@ weights, the same principle used for the current best's 15% MLP weight.
 the next candidate to test -- best CV number of anything not yet submitted,
 and the only queued candidate with a specific mechanism (stacking two
 independently-real effects) rather than just a single untested lever.
+
+## 2026-07-28: Teammate Imelda's mnl+xgb -- honest validation, still a large surprise gap
+
+Imelda's `submission_mnl_xgb.csv` (branch `imelda`,
+`notebooks/experiments/ensemble_mnl_xgb.Rmd`) was submitted: **public 1.255**.
+Reviewed her notebook to understand the model before logging it, the same
+standard applied to Clarence's and Zeening's submissions.
+
+**Her validation methodology is actually sound**, unlike Clarence's
+(task-based split) or Zeening's (fully row-level-random split): 20
+independent 80/20 splits sampling unique `Case` values, properly
+respondent-grouped. Her own log records the ensemble's internal mean as
+**1.18616 (sd 0.01424)**, beating her standalone MNL (1.20174) and xgboost
+(1.18629) components as expected -- a believable, honestly-obtained number,
+not an artifact of leakage.
+
+**The gap anyway: 0.06884 -- the largest of any honestly-validated model in
+this project**, bigger than this project's own standalone-mlogit gap
+(0.066), which was itself the largest seen before now. This is a genuinely
+interesting result specifically *because* her validation doesn't have an
+obvious flaw -- it's a different kind of evidence than the Clarence/Zeening
+cases (where a bad split fully explains the gap).
+
+**Plausible contributing factors** (structural differences from this
+project's models, not confirmed causes -- her code wasn't executed in this
+environment, which uses hardcoded Mac paths):
+- **Zero respondent-covariate interactions of any kind.** Her formula is
+  `Choice ~ attrs + Price - 1`, no income/segment/age/etc. terms at all. This
+  project's own progression found covariate interactions to be the single
+  biggest source of legitimate, generalizable heterogeneity gain (mod6).
+  Their complete absence here is the most obvious structural difference.
+- **Only 6 of 19 attributes are factor-coded** (`NS/BU/FP/SC/MA/LB`, with
+  rare levels collapsed to the modal); the other 13 enter as linear/
+  continuous. This project confirmed early that factor-coding all attribute
+  levels beats treating them as linear (mod1 -> mod2b) -- her spec only
+  captures part of that gain.
+- **Her xgboost component is the same binary-choice-with-renormalization
+  architecture this project tested and found null** (a real ranking
+  objective was needed to actually teach the within-task comparison
+  structure) -- likely leaves real signal unused, capping the ensemble's
+  ceiling regardless of the gap question.
+
+None of these are proven to cause the specific 0.069 gap size, but they are
+real, checkable differences from every model in this project's own lineage,
+and they point the same direction: a model with the LEAST covariate-based
+flexibility showing the LARGEST properly-validated gap is consistent with
+(though doesn't prove) the confirmed income-shift finding being at least
+part of the story -- a model that captures none of the transferable,
+covariate-driven heterogeneity has less to fall back on when the population
+shifts. Worth flagging to Imelda, and worth citing in the report's
+generalization-gap section as independent evidence that the CV-to-public
+gap on this dataset isn't just a symptom of any one team's validation
+mistakes.
