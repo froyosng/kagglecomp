@@ -1,26 +1,53 @@
-# Questionnaire-version Newton correction: findings
+# Questionnaire-version opt-out corrections: findings
 
 ## Verdict
 
 **Not adopted; no candidate submission file generated and no Kaggle submission
-made.** The mathematically correct, version-specific opt-out utility correction
-slightly worsened both a freshly refit frozen pipeline and the exact saved OOF
-prediction corresponding to the submitted 15%-MLP blend. Its
-respondent-clustered confidence interval crosses zero, only one of five folds
-improves, and excluding versions with only one usable peer reduces but does not
-reverse the harm.
+made.** The requested empirical-Bayes mean-residual correction looked promising
+on the cheap respondent-held-out screen, then worsened both a freshly refit
+frozen pipeline and the exact saved OOF prediction corresponding to the
+submitted 15%-MLP blend under nested five-fold CV. A more principled
+Newton/curvature sensitivity version also worsened both baselines. Both
+respondent-clustered confidence intervals cross zero.
 
 The current `ensemble_v11 + 0.15 MLP` submission remains the best submission.
-The pre-Newton raw-probability-residual screen was explicitly superseded by the
-refined specification and is not part of this result.
+The positive screen was not discarded or reinterpreted: it is reported below as
+a concrete example of a promising single split failing honest nested CV.
 
-## Method
+## Requested mean-residual method
 
 The run starts from `zhenhao` commit `5a8d601` and reuses
 `data_processed/questionnaire_fingerprints.rds` directly. It does not reconstruct
 the 299 questionnaire fingerprints.
 
-For version \(v\), the correction adds one scalar to the opt-out utility:
+For the primary requested experiment, version \(v\) receives one additive
+opt-out utility shift:
+
+\[
+\delta_v =
+\frac{n_v}{n_v+\alpha}
+\operatorname{mean}_{i\in v}(y_{i4}-p_{i4}),
+\qquad
+\alpha \in \{20,40,60,80,100,\infty\}.
+\]
+
+Here \(n_v\) is the number of training tasks supporting the version. The shift
+is applied by adding \(\delta_v\) to `log(p4)` and re-softmaxing the four
+probabilities. `Inf` means full shrinkage/no correction.
+
+The canonical screen used the seed-7402 respondent split. For nested five-fold
+CV, each outer fold used the other four canonical folds as inner validation
+folds; alpha was selected on pooled inner-held-out loss. Final deltas used only
+outer-training respondents' calibration residuals (computed after fitting the
+base architecture on that same training partition), and were applied to the
+untouched outer fold. The outer comparison uses the exact fixed-15% MLP OOF
+baseline, asserted at `1.143686618`.
+
+## Newton sensitivity method
+
+Because a probability residual is not naturally measured in utility units, a
+secondary sensitivity check used the conditional-logit gradient and curvature.
+For version \(v\):
 
 \[
 g_v = \sum_i (p_{i4}-y_{i4}), \qquad
@@ -52,6 +79,32 @@ baseline, whose asserted log loss is `1.143686618`.
 
 ## Main results
 
+### Requested mean-residual correction
+
+The cheap screen selected alpha 20 and improved `1.161055905` to
+`1.159665592`, a gain of `0.001390313`. It covered 218 of 227 held-out
+respondents; the other nine received zero correction.
+
+That result did not survive nested CV:
+
+| Outer fold | Selected alpha | Inner gain | Exact-baseline outer gain |
+|---:|---:|---:|---:|
+| 1 | 100 | +0.000223 | -0.000117 |
+| 2 | Inf | 0 | 0 |
+| 3 | Inf | 0 | 0 |
+| 4 | 100 | +0.000065 | -0.000269 |
+| 5 | 80 | +0.000425 | -0.000832 |
+
+| Comparison | Baseline | Corrected | Gain | Respondent-bootstrap 95% CI |
+|---|---:|---:|---:|---:|
+| Freshly refit frozen pipeline | 1.143598 | 1.143839 | -0.000242 | [-0.000893, +0.000409] |
+| Exact fixed-15% submitted OOF | 1.143687 | 1.143930 | -0.000243 | [-0.000896, +0.000407] |
+
+All three outer folds where inner CV selected a finite correction worsened. The
+other two correctly chose the uncorrected baseline.
+
+### Newton/curvature sensitivity
+
 Nested lambda selections were:
 
 | Outer fold | Selected lambda | Inner gain | Exact-baseline outer gain |
@@ -78,9 +131,8 @@ gain means lower log loss; all point estimates are negative.
 
 ## Diagnostics
 
-- The selected correction improves only fold 1. Folds 2-3 are unchanged because
-  lambda is infinite; folds 4-5 worsen. It fails the requested four-of-five
-  fold condition.
+- The Newton correction improves only fold 1. Folds 2-3 are unchanged because
+  lambda is infinite; folds 4-5 worsen.
 - Removing corrections supported by only one training peer helps folds 1 and 4,
   but fold 5 still worsens by about `0.00092`. The pooled result remains
   negative.
@@ -111,8 +163,12 @@ gain means lower log loss; all point estimates are negative.
 ## Audit and reproducibility
 
 - `R/codex_version_shrinkage_common.R`: saved-version loader, frozen base-model
-  fitter, Newton update, leave-one-respondent-out lambda evaluation, bootstrap.
-- `R/codex_version_shrinkage_cv.R`: nested canonical five-fold run.
+  fitter, mean-residual and Newton updates, lambda evaluation, bootstrap.
+- `R/codex_version_mean_residual_screen.R`: canonical single-split screen.
+- `R/codex_version_mean_residual_eval.R`: cached-fit nested mean-residual CV.
+- `R/codex_version_mean_residual_audit.R`: independent reconstruction of the
+  requested correction.
+- `R/codex_version_shrinkage_cv.R`: nested canonical Newton five-fold run.
 - `R/codex_version_shrinkage_diagnostics.R`: calibration, outcome/task/
   propensity slices, sign consistency, peer counts, and dominance.
 - `R/codex_version_shrinkage_audit.R`: independent reconstruction from saved
@@ -121,11 +177,15 @@ gain means lower log loss; all point estimates are negative.
 The audit verifies all 17,252 inner-OOF rows per outer fold are present; every
 inner model excludes both its inner target respondents and the outer holdout;
 every final outer fit contains 908 source and 227 target respondents with no
-overlap; every delta exactly reproduces `-g/(h+lambda)`; and all corrected
-matrices reproduce the saved results bit-for-bit.
+overlap; the primary deltas exactly reproduce
+`n/(n+alpha) * mean(y4-p4)`; the sensitivity deltas exactly reproduce
+`-g/(h+lambda)`; and all corrected matrices reproduce the saved results
+bit-for-bit.
 
 Generated results live under
 `data_processed/codex_version_shrinkage/` (gitignored), especially
+`mean_residual_cv_result.rds`, `mean_residual_outer_results.csv`,
+`mean_residual_bootstrap.csv`, `mean_residual_audit.csv`,
 `newton_cv_result.rds`, `newton_outer_results.csv`, `newton_bootstrap.csv`,
 `newton_loss_slices.csv`, and `newton_audit.csv`.
 
