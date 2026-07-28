@@ -7,8 +7,9 @@
 # architecture is then frozen before respondent-grouped five-fold CV.
 #
 # Stages:
+#   CODEX_DEEP_STAGE=define - load reusable functions without running a stage
 #   CODEX_DEEP_STAGE=smoke  - two-epoch API/runtime check
-#   CODEX_DEEP_STAGE=screen - three-architecture single-split screen
+#   CODEX_DEEP_STAGE=screen - architecture single-split screen
 #   CODEX_DEEP_STAGE=cv     - canonical five-fold OOF confirmation
 
 options(stringsAsFactors = FALSE)
@@ -25,7 +26,7 @@ if (is.na(old_stage)) {
 }
 
 stage <- Sys.getenv("CODEX_DEEP_STAGE", "screen")
-stopifnot(stage %in% c("smoke", "screen", "cv"))
+stopifnot(stage %in% c("define", "smoke", "screen", "cv"))
 
 output_dir <- "data_processed/codex_deep_stack"
 checkpoint_dir <- file.path(output_dir, "torch_checkpoints")
