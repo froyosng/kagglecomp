@@ -609,6 +609,47 @@ fresh, blend weights 0.732/0.112/0.156) but **not yet submitted**. Best CV
 number of any queued-but-unsubmitted candidate, and the only one with a
 specific stacking rationale rather than a single untested lever.
 
+## Resolved: deep learning, full stacking, LightGBM -- best-ever CV, still can't reach 1.186 (2026-07-28)
+Explicit push for public 1.186, needed for a good module grade (branch
+`codex-deep-stack-boost`, commit `8510b01`, merged into `zhenhao`).
+Independently reviewed all four scripts and cross-checked every number
+against the raw generated CSVs -- exact match, including verified-leakage-free
+nested log-pool selection, a correct analytic softmax-gradient derivation for
+the arithmetic blend, and confirmed architecture-freezing-before-CV
+discipline for the deep MLP.
+
+- **R `torch` installs successfully** (previously assumed unavailable -- an
+  environment-setup gap, not a permanent limit). A real 2-layer (128/64
+  unit) dropout MLP contains real signal (replacing the shallow MLP in v11
+  clears zero vs. plain v11), but does **not** clear the bar that matters --
+  improving over the already-submitted shallow-MLP candidate (CI crosses
+  zero for both the incremental and joint comparisons).
+- **Full nested stacking across 6-8 diverse components, retested with much
+  more diversity than the first attempt: learned combiners still lose to
+  simple arithmetic averaging.** A nested ridge log-pool (properly
+  leakage-free, boundary-checked) reaches at best +0.000634 (CI crossing
+  zero); a shallow xgboost meta-model is decisively harmful (~1.152). Same
+  conclusion as the very first stacking attempt (2 components), now
+  confirmed with far more diversity: this ensemble has reached what a simple
+  weighted average can extract.
+- **Best CV of the entire project: 1.142112** (8-component arithmetic
+  blend), improving all 5 folds. Bootstrap vs. current best: ordinary 95%
+  CI **[0.0000466, 0.0032790] -- excludes zero, but only just**; 99% and
+  Bonferroni-adjusted CIs both cross zero. Correctly not submitted.
+- **LightGBM**: clean negative, all 3 configs got zero screen weight, did
+  not proceed to CV.
+
+**The number that matters most for the 1.186 target**: even taking the best
+(unconfirmed) result at full face value, the implied public-score movement
+is from 1.201 to roughly **1.199-1.200 -- not 1.186**. Across this entire
+project's search (ensembling, shift correction, rank features, higher-order
+interactions, bagging, RRM, deep learning, learned stacking, LightGBM), no
+single gain has exceeded ~0.002 in CV terms. Closing a 0.015 public gap
+would need roughly 10x any single improvement found anywhere in this
+search. Strong evidence that 1.186 is not reachable via further iteration
+on the techniques already tried, though it doesn't rule out a fundamentally
+different approach.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),

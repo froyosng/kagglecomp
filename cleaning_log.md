@@ -1731,3 +1731,77 @@ shifts. Worth flagging to Imelda, and worth citing in the report's
 generalization-gap section as independent evidence that the CV-to-public
 gap on this dataset isn't just a symptom of any one team's validation
 mistakes.
+
+## 2026-07-28: Deep learning, full stacking, and LightGBM -- best-ever CV, still can't reach 1.186
+
+Explicit push to clear public 1.186 (needed for a good module grade, per
+teammate report of other groups' scores), not just 1.2. Three directions,
+branch `codex-deep-stack-boost`, commit `8510b01`, merged into `zhenhao`.
+Independently reviewed all four new scripts and cross-checked every number
+against the raw generated CSVs in `data_processed/codex_deep_stack/` --
+exact match throughout, including verifying the nested log-pool's inner/
+outer fold structure has no leakage, the arithmetic blend's analytic BFGS
+gradient is a correct softmax-parameterization derivation, and the deep
+MLP's architecture was frozen from the single-split screen strictly before
+the 5-fold CV loop.
+
+**1. A real deep-learning framework is now available.** R `torch` 0.17.0
+installed successfully -- the earlier "unavailable" finding was an
+environment-setup gap, not a permanent limitation. A genuine 2-layer
+(128/64 unit) dropout MLP was screened (5 configs, architecture frozen
+before CV) and contains real signal: alone it scores 1.193140, and replacing
+the shallow MLP with it in `ensemble_v11` gives a bootstrap-CI-excluding-zero
+gain over plain v11 (+0.001948, CI [0.000386, 0.003513]). But it does **not**
+clear the bar that actually matters -- improving over the ALREADY-SUBMITTED
+shallow-MLP candidate. Both the incremental-add (+0.000620) and joint-blend
+(+0.000759) comparisons have bootstrap CIs crossing zero
+([-0.000310, 0.001552] and [-0.000188, 0.001714]).
+
+**2. Full nested stacking across every diverse component -- learned
+combiners still don't beat simple averaging.** With 6 (or 7, including the
+new deep MLP) genuinely diverse cached OOF sources now available (mlogit,
+2 xgboost variants, glmnet-Cox, shallow MLP, triple-interaction mlogit, deep
+MLP), retested whether a properly nested, learned meta-model could extract
+more than arithmetic blending -- this had only been tried once before, with
+just 2 components, and found null. Same conclusion holds with far more
+diversity: a nested ridge-regularized log-linear opinion pool (lambda
+selected via inner folds, boundary-checked from both directions to confirm
+0.01 is a genuine optimum, not an artifact of the tested range) reaches at
+best 1.143155 (+0.000634, CI crossing zero) and *exactly ties* the current
+best for the 7-component pool (-0.000002). A shallow xgboost meta-model is
+decisively harmful in both pools (~1.152, clearly worse). Two attempts,
+two component-diversity levels, same answer: this ensemble has reached
+what a simple weighted average can extract: a learned combiner adds
+nothing.
+
+**3. The best CV number of the entire project -- but it doesn't clear the
+bar.** The 8-component arithmetic blend (fold-cross-fitted weights: triple-
+interaction mlogit 48%, deep MLP 13%, glmnet-Cox 13%, rank:ndcg xgboost 9%,
+shallow MLP 8%, original mlogit 6%, retuned xgboost 2%, original xgboost
+0.5%) reaches **1.142112** -- the best point estimate seen all session,
+improving all 5 folds individually. High-precision bootstrap vs. the
+current best: gain 0.001678, ordinary 95% CI **[0.0000466, 0.0032790] --
+excludes zero, but only just.** The 99% CI and a 6-candidate
+Bonferroni-adjusted CI both cross zero ([-0.000519, 0.003829]). Correctly
+not submitted, per the project's own predeclared rule.
+
+**4. LightGBM -- clean, fast negative.** Native categorical splitting
+(different from xgboost's numeric treatment of attribute/covariate codes)
+screened worse than the existing xgboost across all 3 regularized configs,
+each receiving exactly zero blend weight -- correctly did not proceed to
+CV, saving compute on an already-clear negative.
+
+**The number that matters most for the 1.186 target.** Even taking the best
+(statistically unconfirmed) result fully at face value, Codex calculated the
+implied public-score movement: from 1.201 to roughly **1.199-1.200** -- not
+1.186. This is worth sitting with: across the ENTIRE project's search --
+ensembling, distribution-shift correction, choice-set rank features,
+higher-order interactions (hypothesis- and data-driven), bagging in both
+directions, Random Regret Minimization, a real deep-learning framework, and
+now learned stacking across maximum available diversity -- no single
+confirmed or unconfirmed gain has exceeded roughly 0.002 in CV terms.
+Closing a 0.015 public gap would require something on the order of 10x any
+single improvement found anywhere in this exhaustive, multi-technique
+search. This doesn't prove 1.186 is impossible with a fundamentally
+different approach, but it is strong evidence that it is not reachable via
+further iteration on the modeling techniques already tried.
