@@ -23,7 +23,7 @@ source("R/codex_shift_common.R")
 history_prior_stage <- Sys.getenv(
   "CODEX_HISTORY_PRIOR_STAGE", "screen"
 )
-stopifnot(history_prior_stage %in% c("screen", "cv"))
+stopifnot(history_prior_stage %in% c("define", "screen", "cv"))
 
 history_prior_output_dir <-
   "data_processed/codex_overnight_queue"
