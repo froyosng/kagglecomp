@@ -583,6 +583,32 @@ contribution -- a real trade-off, not a bug. **No new candidate generated;
 the original 5-seed `submission_codex_mlp_v12_candidate.csv` remains the
 recommended submission** -- more seeds do not make it clearly better.
 
+## Untested candidate: triple interaction + MLP combined (2026-07-28)
+Explicit push toward clearing public 1.2 (other teams reportedly at 1.186).
+The triple-interaction mlogit and the MLP were each validated independently
+but never blended together -- tested directly (own analysis, using already-
+cached OOF predictions, no refitting needed for the CV comparison).
+
+Honest fold-cross-fitted 3-way blend: **1.143328** -- ties the session's
+best-ever CV number (the 5-family ensemble's 1.143129). Vs. the current best
+(v11+MLP, 1.143789): gain +0.000462, CI **[-0.000754, +0.001642] -- crosses
+zero**, not confirmed better than what's deployed. Vs. plain v11: gain
++0.001767, CI **[+0.000054, +0.003420] -- excludes zero**, barely. A paired
+public-LB-sized simulation, anchored to the current best's real public score
+(1.201), implies a 95% range of **[1.1979, 1.2033]** with a **63.6% chance**
+of beating the current best on the same draw -- a real, if not overwhelming,
+lean toward clearing 1.2. Same known caveat as the standalone triple
+candidate: sensitive to the same extreme-income test respondent (48 of 4997
+rows show a >0.15 swing, max deviation 0.52) -- test has proportionally more
+such extreme respondents than training, so real-world variance could exceed
+the simulation's estimate.
+
+`submission_triple_mlp_v13.csv` is generated and validated (reuses the
+already-fit MLP full-data test predictions, fits mlogit+triple and xgboost
+fresh, blend weights 0.732/0.112/0.156) but **not yet submitted**. Best CV
+number of any queued-but-unsubmitted candidate, and the only one with a
+specific stacking rationale rather than a single untested lever.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),

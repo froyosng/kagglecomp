@@ -1620,3 +1620,61 @@ public 1.201 / CV 1.143789. `submission_triple_income_miles.csv` and
 slots, both still testing genuinely open questions (the income x mileage
 interaction; the 4-way ranking/regularized-logit ensemble) independent of
 this result.
+
+## 2026-07-28: Combining the triple interaction with the MLP -- a new best CV number, mixed significance
+
+Pushed on the explicit goal of clearing public 1.2 (other teams reportedly at
+1.186). The triple-interaction mlogit and the MLP were each validated
+independently this session but never blended together -- a natural
+combination given they operate through different mechanisms (a utility-
+specification refinement vs. a genuinely different function class for
+ensemble diversity). Tested this directly (own analysis, not yet a
+dedicated Codex round) using already-cached OOF predictions -- no refitting
+needed for the CV comparison: `data_processed/codex_triples/triple_oof.rds`
+(triple-interaction mlogit), `data_processed/codex_behavioral_round/mlp_oof.rds`
+(MLP), and `data_processed/oof_ensemble_v10.rds` (xgboost). All three
+verified to reproduce their already-confirmed baseline losses before
+combining anything.
+
+**Result: essentially ties the session's best-ever CV number, but doesn't
+clearly beat the model actually in production.** Honest fold-cross-fitted
+3-way blend (mlogit/xgboost/MLP weight chosen per fold using only the other
+4 folds): **1.143328** -- almost identical to the earlier 5-family
+ensemble's 1.143129 (which itself wasn't significantly better than the
+simple MLP blend). Versus the CURRENT BEST (v11+MLP, 1.143789): gain
++0.000462, respondent bootstrap 95% CI **[-0.000754, +0.001642] -- crosses
+zero**, not confirmed as an improvement over what's actually deployed.
+Versus plain v11 (1.145094): gain +0.001767, CI **[+0.000054, +0.003420] --
+excludes zero**, though barely.
+
+**What this is actually worth, empirically.** Ran a paired public-LB-sized
+simulation (same respondent-clustered methodology as
+`R/public_sample_noise_clustered.R`, but comparing this candidate against
+the current best on the SAME simulated draw rather than independent draws,
+and anchored to the current best's REAL observed public score of 1.201
+rather than a hypothetical) -- implies a 95% range of **[1.1979, 1.2033]**
+for this candidate's public score, with a **63.6% chance of beating the
+current best** on the same draw. A real lean toward improvement and a
+genuine, non-trivial chance of landing below 1.2, but not a lock.
+
+**Known caveat, re-confirmed for this new combination.** The triple
+interaction's unbounded `Price x z(income) x z(mileage)` product is still
+sensitive to the same extreme-income respondent identified earlier (test
+`No 22637`, income 26.9 SDs above the training mean): 48 of 4997 test rows
+show a >0.15 probability swing versus the current best, max deviation 0.52.
+Since test has proportionally more such extreme respondents than training
+(3 of 263 vs. 1 of 1135), the real-world public-LB variance for this
+specific candidate could exceed what the training-respondent-based
+simulation suggests.
+
+**Submission prepared.** `R/submit_triple_mlp_v13.R` fits the
+triple-interaction mlogit and xgboost fresh on the full training data, and
+reuses the ALREADY-FIT MLP full-data test predictions from
+`data_processed/codex_behavioral_round/mlp_full_test_candidate.rds` (no MLP
+refit) -- blended at 0.732/0.112/0.156, the average of the fold-cross-fitted
+weights, the same principle used for the current best's 15% MLP weight.
+`submission_triple_mlp_v13.csv` generated and validated (4997 rows, correct
+`No` order, row sums to 1, no NAs) but **not yet submitted**. Recommended as
+the next candidate to test -- best CV number of anything not yet submitted,
+and the only queued candidate with a specific mechanism (stacking two
+independently-real effects) rather than just a single untested lever.
