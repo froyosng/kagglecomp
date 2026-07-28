@@ -279,34 +279,47 @@ blend_components <- function(components, weights) {
 
 fit_arithmetic_weights <- function(truth, components, rows) {
   n_components <- length(components)
+  stopifnot(n_components >= 2L)
   chosen <- do.call(cbind, lapply(components, function(prediction) {
     rowSums(
       truth[rows, , drop = FALSE] *
         prediction[rows, , drop = FALSE]
     )
   }))
-  evaluate <- function(theta) {
-    weights <- softmax_weights(theta, n_components)
+  evaluate <- function(free_weights) {
+    weights <- c(free_weights, 1 - sum(free_weights))
     mixed <- as.numeric(chosen %*% weights)
     value <- -mean(log(pmax(mixed, 1e-15)))
     gradient_weight <- -colMeans(chosen / mixed)
-    weighted_gradient <- sum(weights * gradient_weight)
-    gradient <- weights[seq_len(n_components - 1L)] *
-      (
-        gradient_weight[seq_len(n_components - 1L)] -
-          weighted_gradient
-      )
+    gradient <- gradient_weight[seq_len(n_components - 1L)] -
+      gradient_weight[[n_components]]
     list(value = value, gradient = gradient)
   }
-  fitted <- optim(
-    rep(0, n_components - 1L),
-    function(theta) evaluate(theta)$value,
-    gr = function(theta) evaluate(theta)$gradient,
+  epsilon <- 1e-10
+  ui <- rbind(
+    diag(n_components - 1L),
+    rep(-1, n_components - 1L)
+  )
+  ci <- c(
+    rep(epsilon, n_components - 1L),
+    -1 + epsilon
+  )
+  fitted <- constrOptim(
+    rep(1 / n_components, n_components - 1L),
+    function(free_weights) evaluate(free_weights)$value,
+    gr = function(free_weights) evaluate(free_weights)$gradient,
+    ui = ui,
+    ci = ci,
     method = "BFGS",
     control = list(maxit = 1000, reltol = 1e-11)
   )
   stopifnot(fitted$convergence == 0L)
-  softmax_weights(fitted$par, n_components)
+  weights <- c(fitted$par, 1 - sum(fitted$par))
+  stopifnot(
+    all(weights >= 0),
+    abs(sum(weights) - 1) < 1e-10
+  )
+  weights
 }
 
 crossfit_three_way <- function(truth, v11, shallow, deep, row_fold) {
