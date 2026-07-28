@@ -98,8 +98,11 @@ understand the project is inline below -- no need to read other files first.*
   negative). More detail than this file; read it for the "why", not just "what".
 - `R/` scripts of note: `cv_price_factor_context.R` and `cv_ensemble_v10.R` are
   the current canonical 5-fold CV harnesses (mlogit, and mlogit+xgboost blend
-  respectively); `submit_ensemble_v11.R` generates the current best submission;
-  `error_analysis.R` / `calibration_check.R` are the diagnostic scripts behind
+  respectively); `submit_ensemble_v11.R` generates the ensemble_v11 base
+  (still used as the frozen baseline the MLP candidate blends against, see
+  `R/codex_mlp_candidate_submission.R`); `R/codex_mlp_candidate_submission.R`
+  generates the current best submission; `error_analysis.R` / `calibration_check.R`
+  are the diagnostic scripts behind
   the "is there more signal left" analysis below.
 - Local environment note: this machine's security policy blocks some compiled
   tidyverse DLLs (tibble/utf8 printing) -- use plain data frames (`as.data.frame()`)
@@ -126,7 +129,8 @@ CV = 5-fold respondent-grouped, seed 4821, pooled. Val = single 80/20 split, see
 | **mlogit_m8trp: m8tr + Price-as-12-level-factor + is_cheapest/is_dearest** | 1.166 | **1.152** | -- | single logit now matches the whole v9 ensemble; see finding #2 above |
 | ensemble_v10: 0.75 m8trp + 0.25 xgboost | -- | 1.148 | -- | not submitted (superseded before a slot was used) |
 | **mlogit_m8trpg: m8trp + price_gap_min/max (distance to cheapest/dearest, not just rank)** | 1.160 | **1.147** | -- | biggest single incremental gain of the session, from just 2 params |
-| **ensemble_v11: 0.80 m8trpg + 0.20 xgboost** | -- | **1.145** | **1.202** | **CURRENT BEST**, both CV and public. Gap 0.057, largest yet |
+| ensemble_v11: 0.80 m8trpg + 0.20 xgboost | -- | 1.145 | 1.202 | best model 2026-07-26/27; gap 0.057. Superseded 2026-07-28 |
+| **ensemble_v11 + 0.15 MLP (nnet, 8 hidden units, 5 seeds)** | -- | **1.1438** | **1.201** | **CURRENT BEST**, both CV and public. First non-tree ensemble member; gap 0.0572, in line with the established pattern |
 
 Negative/null results (all real attempts, logged for the report's "alternatives
 tried" section, not dead ends to re-try):
@@ -320,7 +324,7 @@ open question**: no further lever has cleared the bar, and the 1.187 score
 specifically should not be treated as evidence of a missing modeling
 breakthrough.
 
-## Known weakness: CV-to-public gap, and what actually drives it (updated 2026-07-27)
+## Known weakness: CV-to-public gap, and what actually drives it (updated 2026-07-28)
 | Model | CV/Val | Public | Gap |
 |---|---|---|---|
 | mod1 | 1.236 | 1.270 | 0.034 |
@@ -328,6 +332,15 @@ breakthrough.
 | ensemble_v9 | 1.152 | 1.204 | 0.052 |
 | ensemble_v11 (mlogit+xgboost blend) | 1.145 | 1.202 | 0.057 |
 | mlogit_m8trpg standalone (no xgboost) | 1.147 | 1.213 | **0.066 (largest)** |
+| ensemble_v11 + MLP (current best) | 1.1438 | 1.201 | 0.0572 |
+
+The MLP candidate's gap (0.0572) sits right in line with ensemble_v9/v11's
+0.052-0.057 range -- another ensemble-class model, another similar gap, no
+new anomaly. It's also the first case this session where a CV-predicted gain
+(0.0013, bootstrap CI barely excluding zero) showed up on the public LB in
+the same direction (observed gain 0.001) rather than vanishing or reversing
+-- a small, encouraging data point that the project's CV protocol is tracking
+real signal, not just noise, even for gains this close to the noise floor.
 
 Tested and refuted the obvious hypothesis: that the blend's small CV gain
 (0.0019 from adding xgboost, right at the noise floor) was an "ensemble
@@ -509,7 +522,7 @@ interactions (both hypothesis- and data-driven), recalibration, and bagging
 in both directions -- has been tested to the same standard, and none clears
 the bar. As exhaustive a search as the remaining time reasonably allows.
 
-## CV-confirmed candidate awaiting submission: MLP ensemble diversity (2026-07-27)
+## Resolved: MLP ensemble diversity -- new best model, confirmed on public LB (2026-07-27/28)
 One more round after the above (branch `codex-history-rrm-mlp`, commit
 `f7bc47c`, merged into `zhenhao`) tested three genuinely different angles:
 design-exposure history, Random Regret Minimization, and a non-tree neural
@@ -543,15 +556,18 @@ with ensemble_v11's predictions (vs. 0.987 for the triple-interaction
 candidate), max deviation 0.07 (vs. 0.61), zero test rows with any >0.15
 swing -- a bounded softmax output doesn't have the unbounded-product
 outlier-sensitivity risk that affects the triple-interaction candidate.
-`submission_codex_mlp_v12_candidate.csv` is generated (full-data fit, 5
-seeds, 15% weight -- matching the mean of the honestly cross-fitted fold
-weights -- against the exact already-public-scored ensemble_v11 CSV) but
-**not yet submitted**. Recommended as the top-priority candidate for the
-next available submission slot, ahead of the triple-interaction and 4-way
-ensemble candidates prepared earlier, given it is the only one to clear the
-ordinary bootstrap bar and the most robust to outlier respondents.
-`ensemble_v11` remains the officially adopted model until a submission
-confirms or refutes this.
+`submission_codex_mlp_v12_candidate.csv` (full-data fit, 5 seeds, 15% weight
+-- matching the mean of the honestly cross-fitted fold weights -- against
+the exact already-public-scored ensemble_v11 CSV) was submitted 2026-07-28:
+**public 1.201, beating ensemble_v11's 1.202 -- the first public-LB
+improvement of the project since ensemble_v11 became the standing best.
+This is now the officially adopted model** (CV 1.143789, public 1.201, gap
+0.0572 -- in line with the established ensemble-class gap pattern, no new
+anomaly). The observed public gain (0.001) was smaller than the CV point
+estimate (0.0013) but in the same direction, not a reversal -- consistent
+with a genuine, if modest, effect. `submission_triple_income_miles.csv` and
+`submission_ensemble_v12_4way.csv` remain queued for future submission
+slots, both still testing open questions independent of this result.
 
 **2026-07-28 follow-up (branch `codex-mlp-seed-bagging`, commit `066ac0b`):**
 tested whether averaging the MLP over more seeds (5 -> 20) improves it, since
@@ -608,14 +624,19 @@ recommended submission** -- more seeds do not make it clearly better.
   scripts and write-up are kept for reproducibility.
 
 ## Next steps
-1. Render `competition_report.qmd` to PDF and do a final wording/layout pass
+1. Update `competition_report.qmd` to reflect the new best model
+   (`ensemble_v11 + MLP`, public 1.201) in place of `ensemble_v11` as the
+   headline result, then render to PDF and do a final wording/layout pass
    (no Quarto/TeX available in this environment yet).
 2. Only 2 Kaggle submissions/day (shared team-wide) -- use CV to decide what's
    worth a slot. Clarence's model still needs a fixed validation split before
-   it's worth trusting or submitting.
+   it's worth trusting or submitting. `submission_triple_income_miles.csv` and
+   `submission_ensemble_v12_4way.csv` remain queued for future slots.
 3. If a genuinely different structural idea surfaces (see "open question"
    above), it's worth testing -- but exhaust it via CV before assuming it's a
    real gain, given how many individually-significant terms have turned out to
    hurt validation this session. The bar for spending a submission slot: the
    respondent-bootstrap CI must clearly exclude zero, not just have a positive
-   point estimate (see the Codex ensemble candidate above for why this matters).
+   point estimate -- confirmed to actually matter in practice now that the MLP
+   candidate (the only one to clear that bar) is also the only one confirmed to
+   improve the public score.

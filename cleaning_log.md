@@ -1582,3 +1582,41 @@ candidate -- more seed-averaging does not make it clearly better by the
 project's own standard, despite improving the point estimate. `ensemble_v11`
 remains officially adopted; the MLP candidate remains queued as the
 top-priority submission for the next available slot.
+
+## 2026-07-28: MLP candidate submitted -- new best model, first public gain since ensemble_v11
+
+`submission_codex_mlp_v12_candidate.csv` was submitted to Kaggle. **Public
+score: 1.201**, beating `ensemble_v11`'s standing 1.202 -- the first public
+leaderboard improvement of the whole project since ensemble_v11 became the
+best model. **This is now the new best model, both CV (1.143789) and
+public.**
+
+**Context for the result.** The CV gain over ensemble_v11 was 0.001305, with
+a bootstrap 95% CI of [+0.000092, +0.002513] -- excluding zero at the
+project's ordinary bar, but not at the stricter 99%/Bonferroni-adjusted
+levels (both of which crossed zero). The actual observed public improvement
+was smaller (0.001) than the CV point estimate (0.0013), but critically in
+the SAME direction, not a reversal -- consistent with a genuine, if modest,
+real effect rather than the CV signal being pure noise. The resulting
+CV-to-public gap (0.057211) matches the project's established ~0.057
+pattern for ensemble-class models almost exactly (ensemble_v9: 0.052,
+ensemble_v11: 0.057), rather than introducing a new anomaly -- another point
+in favor of this being a genuine, well-behaved improvement rather than a
+lucky/unlucky draw of the public sample.
+
+**Why this one, and not the other two prepared candidates.** Of the three
+candidates prepared this session (triple-interaction mlogit, 4-way ensemble,
+MLP blend), the MLP was the only one whose CV bootstrap CI cleared the
+ordinary 95% bar at all, and it was also the structurally safest (no
+outlier-sensitivity risk analogous to the triple-interaction candidate's
+extreme-income sensitivity). The result validates that prioritization: a
+real, if modest, gain, in the model that was both the best-supported and the
+safest of the three.
+
+**Updated project state.** `submission_codex_mlp_v12_candidate.csv`
+(ensemble_v11 + 15% five-seed MLP) is now the officially adopted best model,
+public 1.201 / CV 1.143789. `submission_triple_income_miles.csv` and
+`submission_ensemble_v12_4way.csv` remain queued for future submission
+slots, both still testing genuinely open questions (the income x mileage
+interaction; the 4-way ranking/regularized-logit ensemble) independent of
+this result.
