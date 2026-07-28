@@ -715,6 +715,49 @@ lever, since it's the only hypothesis from the review round that was
 independently confirmed to exist in the data before any modeling was built
 on top of it. Cached as `data_processed/questionnaire_fingerprints.rds`.
 
+**2026-07-28 follow-up -- version correction tested and rejected (branch
+`codex-overnight-queue`, commit `798662c`):** implemented as a one-step
+Newton correction to the opt-out utility per version (utility-space, not a
+naive probability residual), with a verified leakage-free nested
+inner-OOF-before-outer-refit structure. Rejected: negative gain on two
+independent evaluations (-0.000172 official OOF, -0.000169 fresh refit).
+Diagnostics directly confirm why -- versions average only ~3-5 training
+respondents, many folds have respondents with literally zero same-version
+peers, and single-peer versions are 100% dominated by that one respondent.
+**The confirmed 299-version structure is real, but too sparse per version to
+support even one well-shrunk correction parameter.** Closes this lever.
+
+## Resolved: overnight queue -- one strong unconfirmed lead, a genuinely pre-registered search (2026-07-28)
+Two more results from the same overnight round, branch `codex-overnight-queue`,
+commit `798662c`, merged into `zhenhao`.
+
+- **Prior-smoothed design-history features (most interesting unconfirmed
+  lead of the round):** a fold-fitted population-prior initialization (verified
+  leakage-free) instead of zeroing Task 1. Best candidate: 1.143686618 ->
+  1.142951450 (+0.000735), improving 4/5 folds. Ordinary 95% CI
+  [-0.000090, +0.001564] -- close, doesn't exclude zero. A cumulative
+  13-candidate Bonferroni check (this round's 5 plus the original round's 8)
+  widens to [-0.000483, +0.001960]. The price-history coefficient is
+  negative and stable across all 5 folds (behaviorally coherent -- reference-
+  price anchoring); the attribute-familiarity coefficient's sign flips.
+  **Not adopted, but the closest near-miss of any lead this session.**
+- **A genuinely pre-registered 24-config deep-MLP search:** the full
+  registry and Bonferroni-24 decision rule were committed to git *before*
+  the screening run started -- independently verified via commit and file
+  timestamps, not just claimed. This is the first search this session where
+  the multiplicity correction was fixed in advance rather than applied
+  after seeing results. The frozen winner (256-128-64 layout) reached
+  1.143321960 (+0.000365, 4/5 folds), but its pre-declared Bonferroni bound
+  (-0.000857) automatically rejects it -- no judgment call needed. Seed-
+  bagging was correctly gated (and correctly skipped, since the ordinary
+  lower bound also failed), avoiding a repeat of the shallow MLP's
+  point-estimate-improves-but-interval-widens pattern.
+
+**Net effect: no submission from this round.** Version correction is now
+closed definitively; the prior-smoothed history lead remains open (worth
+revisiting if further evidence accumulates); the pre-registration discipline
+worked exactly as designed.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),

@@ -1971,3 +1971,93 @@ for reuse. This is now the single most promising untested lever, given it's
 the only hypothesis from the recent external-review round that was
 independently, empirically confirmed to exist in the data (not just
 plausible) before any modeling was attempted on top of it.
+
+## 2026-07-28: Overnight queue -- version correction rejected, one strong unconfirmed lead, and a genuinely pre-registered search
+
+An 8-hour overnight Codex run covering three experiments (branch
+`codex-overnight-queue`, commit `798662c`, merged into `zhenhao`). Given the
+length and significance, reviewed unusually carefully: cross-checked every
+reported number against the raw generated CSVs (all exact), and specifically
+verified the two things most likely to hide a subtle error -- the nested
+inner-OOF structure for the version correction, and whether the deep-MLP
+"pre-registration" was genuine or a post-hoc rationalization.
+
+**1. Version-level Newton opt-out correction -- rejected, and the failure
+mode is directly diagnosed, not just observed.** Implements the refined
+utility-space specification exactly: `delta_v = -g_v/(h_v+lambda)` where
+`g_v = sum(p4-y4)`, `h_v = sum(p4*(1-p4))` -- a one-step Newton update to the
+opt-out utility for each of the ~299 confirmed questionnaire versions, not a
+naive shrunken probability residual (a raw-residual version was also run as
+an explicit negative control and was harmful, confirming the utility-space
+fix was the right call in principle). Verified in code that the nested
+inner-OOF-before-outer-refit structure is implemented correctly: for each
+outer fold, `delta_v` is estimated only from genuine inner-OOF predictions of
+the outer-training respondents (built via its own inner 4-fold loop
+excluding both the outer fold and the current inner fold), never from a
+model's in-sample fit on the same respondents used to estimate the
+correction -- exactly the leakage-avoidance detail specified as most
+important. Result: negative on both the exact official OOF (gain
+-0.000171553) and a freshly-refitted pipeline (gain -0.000169070) -- two
+independent evaluations agree, ruling out an artifact of reusing cached
+predictions. Only 3 of 5 outer folds selected any nonzero penalty; the other
+2 selected `lambda=Inf` (full shrinkage to zero). Excluding
+single-training-peer versions didn't rescue it. A dedicated dominance
+diagnostic confirms exactly why: versions with only 1 training peer are
+100% determined by that single respondent's outcome (dominance=1 exactly),
+and 7-15 respondents per fold have literally zero training peers at all.
+**The confirmed 299-version structure is real, but the per-version sample
+size (~3-5 respondents) is too small to support even a single well-shrunk
+parameter.** This closes the version-correction lever cleanly.
+
+**2. Prior-smoothed design-history features -- the most interesting
+unconfirmed lead of the round.** A refinement of the earlier
+(2026-07-27) null design-exposure-history result: adds a fold-fitted
+population-prior initialization (instead of zeroing Task 1) and a partial-
+pooling strength `k`, so early tasks blend toward a population-level
+reference price/familiarity rather than starting from nothing. Verified in
+code that the population prior is computed from training-fold-only data
+and applied identically to source and target (no leakage), and that Task 1
+uses pure population-prior initialization with no respondent-specific
+lookahead. Of 5 pre-specified candidates, only `both_k3` passed the
+single-split screen. Result: **1.143686618 -> 1.142951450, gain
++0.000735, improving 4 of 5 folds.** Ordinary 95% CI
+`[-0.000090, +0.001564]` -- close, but does not exclude zero. A Bonferroni
+check against the cumulative family of this round's 5 candidates plus the
+original round's 8 (13 total) widens to `[-0.000483, +0.001960]`, correctly
+reported as the more honest number given the full search history. The
+price-history coefficient is negative and stable across all 5 folds
+(-0.120 to -0.183, behaviorally coherent -- respondents anchor toward a
+reference price); the attribute-familiarity coefficient's sign flips across
+folds, suggesting the price mechanism specifically may be the more real
+part. Correctly not chased further with an ad hoc price-only refit after
+seeing this pattern, to preserve the pre-specified candidate set. **Not
+adopted, but worth remembering if further evidence accumulates.**
+
+**3. A genuinely pre-registered wider deep-MLP search -- the discipline
+worked exactly as intended.** The full 24-config registry (6 layouts x 4
+training recipes) and decision rule were committed to git (`3f479a7`)
+*before* the actual screening run started -- independently verified two
+ways: git commit ordering, and the screen's own output file timestamps
+(23:07+) postdating the pre-registration commit (23:04:56) by several
+minutes. This is worth taking a moment on: every other multi-config search
+this session (the original 9-config MLP screen, the 23-draw xgboost
+retune, etc.) needed a multiplicity correction applied *after* seeing
+results, sized to whatever was actually tried. This is the first time the
+family size and the exact rejection rule were fixed in advance, and it
+mattered: the frozen winner (256-128-64 layout) reached the best CV number
+among deep architectures yet (three-way blend 1.143321960, gain
++0.000365, 4/5 folds improving), but the pre-declared rule required a
+Bonferroni-adjusted lower bound above zero -- the actual bound is
+-0.000857, so the pre-committed rule rejects it automatically, no
+judgment call needed. Seed-bagging was correctly gated on requiring a
+positive ordinary lower bound (which failed), so -- per the pre-registered
+rule -- it correctly wasn't attempted, avoiding a repeat of the shallow
+MLP's "point estimate improves, interval widens" seed-bagging pattern.
+
+**Net effect: no submission from this round.** But this closes the version-
+correction question definitively (confirmed structure, insufficient sample
+size), leaves one genuinely interesting unconfirmed lead (prior-smoothed
+history, specifically the price-reference mechanism), and demonstrates that
+proper pre-registration -- decided this session as a design principle after
+repeatedly needing after-the-fact multiplicity corrections -- works exactly
+as intended when actually followed.
