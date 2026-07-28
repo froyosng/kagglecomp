@@ -1845,3 +1845,129 @@ project's established 1.142-1.144 CV ceiling holds. This closes the
 tree-learner-diversity question cleanly -- consistent with, and reinforcing,
 the broader conclusion that reaching public 1.186 is not achievable via
 further modeling iteration on the techniques tried so far.
+
+## 2026-07-28: Shared-utility exact-softmax models, scale heterogeneity, and yearind
+
+Five directions from an external technical review, each fact-checked before
+delegating rather than taken on faith (branch `codex-shared-utility`, commit
+`3e1ca29`, merged into `zhenhao`). Two of the review's claims were checked and
+one was dropped: a "Case-tail validation" idea (test directly -- no evidence
+of a Case-order income trend in training data, correlation ~0.03, dropped
+before it reached Codex) and a confirmed genuine gap (`yearind` has never
+been tested as an interaction, verified by grep before delegating).
+
+**1. A genuine shared-alternative-utility model on the EXACT choice
+likelihood.** This closes a real, previously-unaddressed structural gap:
+neither `multi:softprob` (no exchangeability constraint -- alternatives 1-3
+get effectively separate learned splits despite being interchangeable
+feature bundles) nor `rank:ndcg`/`rank:pairwise` (a shared per-alternative
+scoring function, correctly, but trained on a ranking metric and only
+calibrated to probabilities *after* fitting) directly optimizes the
+four-way softmax cross-entropy the way `mlogit` does. Implemented via a
+custom xgboost objective (one scoring function per alternative, `qid`
+grouping, gradient = p_j - y_j, diagonally-dominant Hessian upper bound
+matching xgboost's own multinomial approach) -- the analytic gradient was
+verified against finite differences before trusting anything (max error
+1.06e-10 against a 1e-7 tolerance). `clogitboost` (the R package suggested
+as a lower-risk alternative) installed but failed structurally: its
+componentwise spline learner needs >=4 unique x-values per term, and most
+of this project's features (attribute levels, alt-position flags) are
+binary/low-cardinality by nature -- not a fixable installation issue.
+
+Cold-start (no base model), the shared-utility booster failed even the
+single-split screen (component 1.218569 vs. v11's 1.160568) and correctly
+never reached CV, per the established screen-first rule. This is a genuinely
+informative negative: optimizing the *exact* choice likelihood is not by
+itself sufficient to be competitive without m8trpg's extensive hand-built
+interaction structure -- the loss function wasn't the bottleneck, the
+features/specification were always doing the real work.
+
+**2. The same objective as a residual on top of m8trpg** (m8trpg's utility
+as a fixed `base_margin`, correction trained directly on the residual
+softmax loss -- different from ensembling, since the correction sees the
+base model's errors during its own fitting, not after). A small, real
+effect: propagated through the full ensemble, 1.143789 -> 1.143714
+(+0.0000759), bootstrap 95% CI [-0.0000839, +0.0002417] -- crosses zero.
+Feature importance is dominated in every fold by `price_gap_min`/`price_gap_max`
+-- this is a tiny refinement of the already-known price-context mechanism,
+not a new source of signal.
+
+**3. Continuous global scale heterogeneity** (a multiplicative `μ` on the
+*entire* utility vector, not just the price sub-component like the earlier
+discrete 2-class latent-class attempt) -- gradient-verified (max error
+1.36e-10), tested at three ridge strengths. **Decisively harmful, not just
+null**: all three have a 95% CI entirely below zero (least harmful,
+ridge=0.01: [-0.002214, -0.000677]). A clean, confirmed negative.
+
+**4. `yearind` interactions**: harmful (CV gain -0.001007 propagated, 4 of 5
+folds worse). Closes the one genuinely untested covariate with a clean
+answer: not useful.
+
+**5. Test-like-respondent re-ranking** (no new training -- re-evaluating
+existing candidates on the subset of training respondents most similar to
+test, via the existing adversarial classifier): the 8-component arithmetic
+blend and triple+MLP keep the same 1st/2nd ranking at every population
+cutoff tested. On the top-30%-most-test-like slice specifically, the
+8-component blend's edge over the submitted MLP blend actually strengthens
+enough to exclude zero (CI [+0.000262, +0.007557]) -- corroborating evidence
+its direction isn't an artifact of non-test-like respondents. Doesn't repair
+the already-failed stricter multiplicity-adjusted interval, so the
+no-submission decision on that candidate stands, but it's a genuinely
+useful piece of corroborating evidence, not nothing.
+
+## 2026-07-28: The questionnaire has ~299 recurring design versions -- confirmed directly, own analysis
+
+The same external review proposed a specific, checkable hypothesis: that the
+survey used a fixed pool of ~300 questionnaire "versions" (Sawtooth CBC's
+documented default), assigned to respondents by sequential Case-number
+cycling, which would explain the already-confirmed 98.5% test-design
+recurrence in training. Tested this directly myself before sending anything
+to Codex, since it's cheap and completely decisive either way
+(`R/check_questionnaire_version_structure.R`).
+
+**Method:** fingerprint every respondent's entire ordered 19-task sequence
+(every attribute + price for all 4 alternatives, in task order -- pure
+design information, no choices, so valid to compute across train+test
+combined; 1398 total respondents).
+
+**Result, split into a refutation and a confirmation:**
+
+- **The specific sequential-cycling mechanism is refuted.** Tested every
+  candidate period from 50 to 500 respondents: for none of them do
+  same-(Case mod V) respondents actually share a fingerprint (purity
+  exactly 0 at every tested period). Version assignment is not simple
+  sequential rotation by Case number.
+- **But the underlying structure is real, and stronger than the earlier
+  design-fingerprint check suggested.** There are **exactly 299 unique
+  full-sequence fingerprints among all 1398 train+test respondents** --
+  matching Sawtooth's documented 300-version default almost exactly. 286 of
+  299 versions recur (shared by more than one respondent, ~4.7 respondents
+  per version on average), with train and test respondents mixed into the
+  same version groups (Case-number gaps between same-fingerprint
+  respondents range from 3 to 1131, essentially unstructured with respect
+  to Case order -- consistent with random rather than sequential version
+  assignment).
+
+**Why this is stronger than the existing `design_cell_empirical_shrinkage`
+null result, not a restatement of it.** That earlier attempt (2026-07-26)
+grouped respondents by *individual task-position designs* (~296 groups,
+~3.8 respondents each) -- 19 separate small-sample problems, one per task
+position, and it correctly found too little data per cell to help. This
+groups by the *entire 19-task sequence instead*: the same ~4-5 respondents
+per version share **all 19** of their tasks, not just one, so a
+version-level residual can pool roughly 4-5 respondents x 19 tasks ~= 80-95
+data points per group, not ~3-4. The ~296-vs-299 near-match strongly
+suggests the earlier per-task-position count was already an echo of this
+same underlying ~299-version structure, just viewed one task at a time
+without exploiting the full sequence.
+
+**Implication.** This reopens the design-cell idea with a materially
+different, better-powered version: a cross-fitted, heavily-shrunk
+version-level residual/calibration (opt-out intercept, overall scale, or a
+target-encoded residual by version, using only training-fold respondents
+sharing a given version, applied to held-out respondents -- including test
+-- who share that version). Cached as `data_processed/questionnaire_fingerprints.rds`
+for reuse. This is now the single most promising untested lever, given it's
+the only hypothesis from the recent external-review round that was
+independently, empirically confirmed to exist in the data (not just
+plausible) before any modeling was attempted on top of it.

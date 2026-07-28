@@ -661,6 +661,60 @@ current best. Two independent tree frameworks with genuinely different
 categorical-handling mechanisms now agree on the same 1.142-1.144 ceiling --
 changing how the tree learner treats categoricals is not the missing lever.
 
+## Resolved: shared-utility exact-softmax models, scale heterogeneity, yearind (2026-07-28)
+Five directions from an external technical review, fact-checked before
+delegating (branch `codex-shared-utility`, commit `3e1ca29`, merged into
+`zhenhao`).
+
+- **A genuine shared-alternative-utility model on the exact 4-way softmax
+  loss** (custom xgboost objective, gradient-verified to 1.06e-10): closes a
+  real gap -- neither `multi:softprob` (no exchangeability across
+  alternatives) nor `rank:ndcg` (shared function, but a ranking loss, not
+  cross-entropy) actually optimizes the choice likelihood directly.
+  Cold-start, it failed even the screen (1.218569 vs. v11's 1.160568) --
+  confirms the loss function wasn't the bottleneck, m8trpg's hand-built
+  features were always doing the real work.
+- **The same objective as a residual on m8trpg**: small real effect
+  (+0.0000759 propagated), CI [-0.0000839, +0.0002417] crosses zero --
+  dominated by `price_gap` features, a tiny refinement of an already-known
+  mechanism.
+- **Global (whole-utility) scale heterogeneity**: decisively harmful, CI
+  entirely below zero at every tested ridge strength.
+- **`yearind` interactions**: harmful, not adopted -- closes the one
+  genuinely untested covariate with a clean negative answer.
+- **Test-like-respondent re-ranking**: the 8-component blend and triple+MLP
+  keep the same ranking at every population cutoff; on the top-30%-most-
+  test-like slice the 8-component blend's edge actually excludes zero
+  ([+0.000262, +0.007557]) -- corroborating, but doesn't repair its
+  already-failed stricter interval.
+
+## Confirmed structural fact: ~299 recurring questionnaire versions (2026-07-28)
+The external review also proposed a specific, checkable hypothesis: a fixed
+pool of ~300 questionnaire "versions" (Sawtooth CBC's documented default),
+assigned by sequential Case-number cycling. Tested directly (own analysis,
+`R/check_questionnaire_version_structure.R`, before sending anything to
+Codex) by fingerprinting every respondent's entire ordered 19-task sequence
+(design only, no choices) across all 1398 train+test respondents.
+
+**The sequential-cycling mechanism is refuted** (tested every candidate
+period 50-500; purity is exactly 0 at all of them). **But the underlying
+structure is real and confirmed**: exactly **299 unique full-sequence
+fingerprints** among 1398 respondents, matching Sawtooth's 300-version
+default almost exactly. 286 of 299 recur (~4.7 respondents/version on
+average), train and test mixed into the same version groups, with no
+relationship between Case-number gaps and version sharing (consistent with
+random, not sequential, assignment).
+
+This is materially stronger than the existing `design_cell_empirical_shrinkage`
+null (which grouped by individual task-position designs, ~3.8 respondents/cell,
+19 separate small-sample problems). Grouping by the full sequence instead
+means the same ~4-5 respondents share **all 19** tasks, pooling ~80-95 data
+points per version instead of ~3-4 -- a materially different, better-powered
+version of the same idea. This is now the single most promising untested
+lever, since it's the only hypothesis from the review round that was
+independently confirmed to exist in the data before any modeling was built
+on top of it. Cached as `data_processed/questionnaire_fingerprints.rds`.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
