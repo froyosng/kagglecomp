@@ -650,6 +650,17 @@ search. Strong evidence that 1.186 is not reachable via further iteration
 on the techniques already tried, though it doesn't rule out a fundamentally
 different approach.
 
+**2026-07-28 follow-up (branch `codex-catboost`, commit `12676eb`):** tested
+whether CatBoost's native ordered-boosting categorical mechanism recovers
+anything LightGBM's split-based categorical treatment missed. Installed via
+CatBoost's official prebuilt Windows binary (no Rtools on this machine).
+Clean, unambiguous negative: fold-cross-fitted blend weight was exactly
+zero in all 5 CV folds (component alone 1.203659799, worse than every other
+tree-based component tried); the resulting blend is byte-identical to the
+current best. Two independent tree frameworks with genuinely different
+categorical-handling mechanisms now agree on the same 1.142-1.144 ceiling --
+changing how the tree learner treats categoricals is not the missing lever.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),

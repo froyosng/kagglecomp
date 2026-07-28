@@ -1805,3 +1805,43 @@ single improvement found anywhere in this exhaustive, multi-technique
 search. This doesn't prove 1.186 is impossible with a fundamentally
 different approach, but it is strong evidence that it is not reachable via
 further iteration on the modeling techniques already tried.
+
+## 2026-07-28: CatBoost -- confirms, doesn't overturn, the LightGBM negative
+
+One more follow-up (branch `codex-catboost`, commit `12676eb`, merged into
+`zhenhao`): does CatBoost's native ordered-boosting categorical mechanism
+(target statistics rather than pure splits) recover anything LightGBM's
+split-based categorical treatment missed? Partly motivated by a prior year's
+similar course project (methodology only, not copied -- their run dropped
+respondent covariates and used a leakage-flawed split, so nothing there was
+reusable, but it flagged CatBoost as worth testing properly).
+
+Installation needed a workaround: this machine lacks Rtools, so a
+from-source GitHub build would have been fragile; Codex instead used
+CatBoost's official pre-built Windows release binary, which installed and
+smoke-tested cleanly. Same feature set as xgboost/LightGBM
+(`wide_feature_matrix()`, all attribute/price/covariate columns), with
+attribute/price and categorical covariates declared as native CatBoost
+categoricals.
+
+**Result: clean, unambiguous negative, same conclusion as LightGBM.** 3 of 4
+screened configs got exactly zero blend weight (component loss 1.212-1.222,
+worse than every other tree-based component already logged this project).
+The 4th technically selected a nonzero screen weight (2%, gain 0.0000364)
+and was correctly advanced per the predeclared rule despite the negligible
+size. In canonical 5-fold CV, with its tree count (681) frozen from the
+screen *before* CV (no early-stopping using held-out fold labels -- verified
+directly in the code), the fold-cross-fitted blend weight was **exactly
+zero in all 5 folds**. The resulting blend is byte-identical to the current
+best; the respondent bootstrap is a literal point mass at zero (SD 0, CI
+[0,0]) -- the correct, deterministic consequence of every fold's selector
+rejecting CatBoost outright, not a computational error.
+
+**Interpretation.** Two independent tree-based frameworks with genuinely
+different categorical-handling mechanisms (LightGBM's split-based treatment,
+CatBoost's ordered target statistics) now agree: changing how the tree
+learner handles categorical features is not the missing lever. The
+project's established 1.142-1.144 CV ceiling holds. This closes the
+tree-learner-diversity question cleanly -- consistent with, and reinforcing,
+the broader conclusion that reaching public 1.186 is not achievable via
+further modeling iteration on the techniques tried so far.
