@@ -1,0 +1,203 @@
+---
+title: "Factors MNL + respondent-covariate interactions"
+output: html_document
+date: "2026-07-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The change teammate feedback flagged as the biggest generalizable win: interact
+respondent covariates (income, age, miles, night, segment) with **price** (and
+optionally key attributes), so different respondent types weigh price/features
+differently. This is the main lever for predicting UNSEEN respondents, since it
+lets a new person's covariates shift their predicted choices.
+
+Built as `Price * covariate` columns (alt-varying: 0 for the opt-out since
+Price4=0), so mlogit treats them as ordinary generic-coefficient terms.
+Validated on the same 20 respondent-level splits.
+
+# Setup
+
+```{r}
+library(mlogit)
+train <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/train.csv")
+test  <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/test.csv")
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+test$Choice  <- 1L
+
+attrs <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+           "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+
+# covariates to interact with price (numeric versions; scaled so coeffs behave)
+covars_num <- c(incomea="incomea", agea="agea", milesa="milesa", nighta="nighta")
+# categorical covariate codes to interact (kept as-is, small integer codes)
+covars_cat <- c(segmentind="segmentind")
+
+ftr <- c("NS","BU","FP","SC","MA","LB")   # factored attributes
+
+log_loss <- function(actual, pred, eps = 1e-15) {
+  actual <- as.matrix(actual); pred <- as.matrix(pred)
+  stopifnot(all(dim(actual) == dim(pred)))
+  pred <- pred / rowSums(pred); pred <- pmin(pmax(pred, eps), 1 - eps)
+  -mean(rowSums(actual * log(pred)))
+}
+one_hot <- function(v) { m <- matrix(0, length(v), 4); m[cbind(seq_along(v), v)] <- 1; m }
+```
+
+# Build Price x covariate interaction columns (alt-varying, no separator)
+
+```{r}
+# scale numeric covariates to ~unit range so interaction coefficients are stable
+scale_cov <- function(df) {
+  df$incomea_s <- df$incomea / 1e5
+  df$agea_s    <- df$agea    / 50
+  df$milesa_s  <- df$milesa  / 100
+  df$nighta_s  <- df$nighta  / 50
+  df
+}
+
+add_interactions <- function(df) {
+  df <- scale_cov(df)
+  # Price x each scaled numeric covariate, per alternative (PxINC1..4, etc.)
+  for (j in 1:4) {
+    df[[paste0("PxINC", j)]] <- df[[paste0("Price", j)]] * df$incomea_s
+    df[[paste0("PxAGE", j)]] <- df[[paste0("Price", j)]] * df$agea_s
+    df[[paste0("PxMIL", j)]] <- df[[paste0("Price", j)]] * df$milesa_s
+    df[[paste0("PxNGT", j)]] <- df[[paste0("Price", j)]] * df$nighta_s
+    df[[paste0("PxSEG", j)]] <- df[[paste0("Price", j)]] * df$segmentind
+  }
+  df
+}
+
+inter_stems <- c("PxINC","PxAGE","PxMIL","PxNGT","PxSEG")
+```
+
+# One split -> fit -> validation log-loss
+
+```{r}
+run_cov <- function(seed, use_interactions = TRUE) {
+  set.seed(seed)
+  vc  <- sample(unique(train$Case), round(0.20*length(unique(train$Case))))
+  fit <- subset(train, !(Case %in% vc)); val <- subset(train, Case %in% vc)
+  truth <- one_hot(val$Choice)
+
+  # collapse rare levels for the factored attrs (train-derived)
+  for (a in ftr) for (j in 1:4) {
+    col <- paste0(a,j); tab <- table(fit[[col]])
+    keep <- as.numeric(names(tab)[tab>=30]); modal <- as.numeric(names(which.max(tab)))
+    fit[[col]][!(fit[[col]] %in% keep)] <- modal
+    val[[col]][!(val[[col]] %in% keep)] <- modal
+  }
+
+  fit <- add_interactions(fit); val <- add_interactions(val)
+
+  # varying columns: base attrs+price (4:83) plus the interaction blocks
+  extra <- unlist(lapply(inter_stems, function(s) paste0(s, 1:4)))
+  vary_names <- c(names(fit)[4:83], if (use_interactions) extra else character(0))
+
+  Sf <- dfidx(fit, shape="wide", choice="Choice", sep="",
+              varying = which(names(fit) %in% vary_names), idx=c("No","Case"))
+  Sv <- dfidx(val, shape="wide", choice="Choice", sep="",
+              varying = which(names(val) %in% vary_names), idx=c("No","Case"))
+  for (a in ftr) { Sf[[a]] <- factor(Sf[[a]]); Sv[[a]] <- factor(Sv[[a]], levels=levels(Sf[[a]])) }
+
+  rhs <- paste(c(attrs, "Price"), collapse="+")
+  if (use_interactions) rhs <- paste(rhs, "+", paste(inter_stems, collapse="+"))
+
+  M <- mlogit(as.formula(paste("Choice ~", rhs, "- 1")), data = Sf)
+  p <- predict(M, newdata = Sv)
+  log_loss(truth, p)
+}
+```
+
+# Stability: factors-only vs factors + covariate interactions
+
+```{r}
+seeds <- 1:20
+summ <- function(fn) {
+  x <- sapply(seeds, function(s) tryCatch(fn(s), error=function(e){message(e);NA}))
+  x <- x[!is.na(x)]
+  c(n=length(x), mean=round(mean(x),5), sd=round(sd(x),5),
+    min=round(min(x),5), max=round(max(x),5))
+}
+
+no_int  <- summ(function(s) run_cov(s, use_interactions = FALSE))
+with_int<- summ(function(s) run_cov(s, use_interactions = TRUE))
+
+rbind(factors_only = no_int, factors_plus_covar_x_price = with_int)
+```
+
+# If interactions help: refit on all train, predict test, write + log
+
+```{r}
+# level alignment for factors (train-derived, applied to test)
+level_map <- list()
+for (a in ftr) { allv <- unlist(train[,paste0(a,1:4)]); tb <- table(allv)
+  level_map[[a]] <- list(keep=as.numeric(names(tb)[tb>=30]), modal=as.numeric(names(which.max(tb)))) }
+collapse_rare <- function(df) { for (a in ftr) for (j in 1:4) {
+  col<-paste0(a,j); df[[col]][!(df[[col]] %in% level_map[[a]]$keep)] <- level_map[[a]]$modal }; df }
+
+trX <- add_interactions(collapse_rare(train))
+teX <- add_interactions(collapse_rare(test))
+
+extra <- unlist(lapply(inter_stems, function(s) paste0(s, 1:4)))
+vary_names <- c(names(trX)[4:83], extra)
+S_all  <- dfidx(trX, shape="wide", choice="Choice", sep="",
+                varying=which(names(trX) %in% vary_names), idx=c("No","Case"))
+S_test <- dfidx(teX, shape="wide", choice="Choice", sep="",
+                varying=which(names(teX) %in% vary_names), idx=c("No","Case"))
+for (a in ftr) { S_all[[a]] <- factor(S_all[[a]]); S_test[[a]] <- factor(S_test[[a]], levels=levels(S_all[[a]])) }
+
+rhs <- paste(paste(c(attrs,"Price"),collapse="+"), "+", paste(inter_stems, collapse="+"))
+Mfull <- mlogit(as.formula(paste("Choice ~", rhs, "- 1")), data = S_all)
+P <- predict(Mfull, newdata = S_test)
+
+sample_sub <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/sample_submission.csv")
+submission <- data.frame(No=test$No, Ch1=P[,1], Ch2=P[,2], Ch3=P[,3], Ch4=P[,4])
+stopifnot(all(names(submission)==names(sample_sub)), all(submission$No==sample_sub$No), !anyNA(submission))
+if (!dir.exists("submissions")) dir.create("submissions")
+write.csv(submission, "/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/submissions/submission_mnl_covar.csv", row.names=FALSE)
+cat("Wrote submissions/submission_mnl_covar.csv\n")
+
+path <- "/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/submissions_log.csv"; log <- read.csv(path, stringsAsFactors=FALSE)
+new  <- data.frame(date=as.character(Sys.Date()), model_name="mnl_factors_covar",
+  description="Factors MNL + Price x (income,age,miles,night,segment) interactions",
+  source_citation="own experiment; teammate feedback on covariate interactions",
+  cv_logloss=with_int["mean"], public_lb_logloss=NA, gap=NA,
+  notes=sprintf("resp-split mean %.5f sd %.5f (factors-only was %.5f)",
+                with_int["mean"], with_int["sd"], no_int["mean"]),
+  stringsAsFactors=FALSE)
+write.csv(rbind(log, new), path, row.names=FALSE)
+cat("Logged mnl_factors_covar\n")
+```
+
+# Notes
+
+- If `with_int` mean is clearly below `no_int` (1.202) without a bigger sd, the
+  covariate interactions are a real, generalizable gain — submit it.
+- To extend: add covariate x attribute interactions (e.g. segment x safety
+  attrs), or interact price with categorical covariates as factors. Add stems
+  the same way. Judge every addition by resp-split mean +/- sd.
+- Given the xgboost ensemble's large public gap (0.069), this interpretable MNL
+  is expected to generalize more reliably even if its validation number is a
+  touch higher.
+```
+```{r}
+# Check stability of the MEAN itself across different seed batches
+seed_batches <- list(1:20, 21:40, 41:60, 61:80, 81:100)
+
+batch_means <- sapply(seed_batches, function(sd_set) {
+  x <- sapply(sd_set, function(s) tryCatch(run_cov(s, use_interactions = TRUE),
+                                           error = function(e) NA))
+  mean(x, na.rm = TRUE)
+})
+
+cat("Mean per batch of 20 splits:\n")
+print(round(batch_means, 5))
+cat("\nOverall mean:", round(mean(batch_means), 5),
+    "| sd of the batch means:", round(sd(batch_means), 5), "\n")
+cat("So the true mean is ~", round(mean(batch_means), 4),
+    "±", round(sd(batch_means), 4), "\n")
+```
