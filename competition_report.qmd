@@ -64,17 +64,25 @@ predictions before calculating log loss. Model improvements were judged by
 paired respondent bootstrap comparisons, whose standard deviation was about
 0.001, rather than by coefficient significance alone.
 
-# Best model: ensemble_v11
+# Best model: ensemble\_v11 + neural ensemble diversity
 
-Our best submitted model, **ensemble_v11**, is the arithmetic probability blend
+Our best submitted model blends the earlier **ensemble\_v11** with a small
+feed-forward neural network:
 
 $$
-\hat{\mathbf p}=0.80\,\hat{\mathbf p}_{\text{m8trpg}}+
+\hat{\mathbf p}=0.85\,\hat{\mathbf p}_{\text{v11}}+0.15\,\hat{\mathbf p}_{\text{mlp}},
+\qquad
+\hat{\mathbf p}_{\text{v11}}=0.80\,\hat{\mathbf p}_{\text{m8trpg}}+
 0.20\,\hat{\mathbf p}_{\text{xgb}}.
 $$
 
-It achieves **1.145094 respondent-grouped CV log loss and 1.202 public
-leaderboard log loss**, improving substantially over the 1.38629 benchmark.
+It achieves **1.143789 respondent-grouped CV log loss and 1.201 public
+leaderboard log loss**, improving on both counts over ensemble\_v11
+(1.145094 CV / 1.202 public) and substantially over the 1.38629 benchmark.
+This is the only refinement, out of dozens tested after ensemble\_v11, whose
+respondent-bootstrap confidence interval cleared our pre-stated significance
+bar, and it is also the only one whose public-leaderboard result was checked
+against its CV prediction (Section 4).
 
 ## Structured conditional-logit component
 
@@ -140,6 +148,24 @@ from the conditional logit's. Out-of-fold weight search assigns it 20% and
 reduces CV log loss by 0.001927. The gain is small but directionally stable:
 the ensemble beat m8trpg in 96.6% of paired respondent bootstrap samples.
 
+## Neural ensemble diversity
+
+Every flexible learner tried up to this point--CART, LASSO multinomial
+regression, and multiple xgboost variants--remained tree-based and never beat
+the structured logit alone. A small single-hidden-layer feed-forward network
+(eight hidden units, weight decay 0.1, base R's `nnet` [@venables2002]), trained on the same
+wide-format attribute/price/covariate representation, scores **1.190543 CV
+alone**--worse than either existing component--yet contributes a genuinely
+different error pattern: fold-cross-fitted blend weight 13--17%, and a
+respondent-bootstrap 95% interval for its ensemble contribution of
+**[+0.000092, +0.002513]**, excluding zero at our pre-stated ordinary
+significance threshold (though not under a stricter correction for the
+architecture search that selected it). It was the only candidate, out of
+several dozen tested after ensemble\_v11 (deeper networks, gradient-boosting
+variants with native categorical handling, distribution-shift corrections,
+higher-order interactions, and design-structure corrections described below),
+to clear this bar, and it was submitted for exactly that reason.
+
 # Alternatives tried
 
 Table 1 reports the main progression on comparable respondent-grouped
@@ -157,7 +183,8 @@ the canonical five-fold harness.
 | ensemble_v9 | 70% m8tr + 30% xgboost | 1.1517 (CV) | 1.204 |
 | m8trp | Saturated price + cheapest/dearest rank | 1.1516 (CV) | -- |
 | m8trpg | Add price-gap magnitudes | 1.1470 (CV) | 1.213 |
-| **ensemble_v11** | **80% m8trpg + 20% xgboost** | **1.1451 (CV)** | **1.202** |
+| ensemble_v11 | 80% m8trpg + 20% xgboost | 1.1451 (CV) | 1.202 |
+| **ensemble_v11+MLP** | **+15% feed-forward net** | **1.1438 (CV)** | **1.201** |
 
 : Main model progression. Lower log loss is better. {#tbl-models}
 
@@ -190,6 +217,70 @@ The experiments also established useful negative results:
   models' log probabilities [@wolpert1992] scored 1.146126, marginally worse
   than the simple probability blend. With only two base models and a small
   minority weight on xgboost, the extra combiner flexibility added little.
+  This conclusion held even after adding four more diverse components (below):
+  a nested ridge-regularized log-linear opinion pool and a shallow xgboost
+  meta-model both failed to beat simple arithmetic weighting a second time.
+
+After ensemble\_v11, a further, larger round of experiments pursued public
+leaderboard leaders' scores (reported near 1.186--1.190, against our 1.202).
+None closed that gap, but several are worth recording as a well-verified
+negative result rather than an unexamined ceiling:
+
+- **Genuine ranking and regularized objectives.** A ranking-loss xgboost
+  (`rank:ndcg` with task-level grouping), a re-tuned wide xgboost, and a
+  regularized conditional logit fit via the stratified-Cox equivalence each
+  modestly improved their own component (CV 1.1636, 1.1760, and 1.1643
+  respectively) and received stable minority weight in a combined blend, but
+  an eight-component arithmetic blend of every model tried--including the
+  neural network--reached only 1.142112 CV. Its bootstrap interval barely
+  cleared zero on the canonical split but, when re-tested with five additional
+  independent fold assignments (repeated cross-validation, chosen specifically
+  to distinguish a real gain from a favorable split), the pooled interval fell
+  back across zero--a fold-assignment artifact, not a genuine improvement.
+- **Isolating and closing the two remaining threads.** The closest unconfirmed
+  lead, a prior-smoothed price-reference feature bundled with a noisier
+  attribute-familiarity term, was re-tested with the noisy term removed
+  entirely (pre-registered, repeated cross-validation from the start): the
+  isolated price-anchoring effect is real and directionally stable (its sign
+  was negative in all 30 independent fold fits) but its size (about 0.0006)
+  still sits inside the respondent-level noise floor. Separately, a
+  weight-shared neural network trained on the exact four-way choice
+  likelihood--the one untested combination of an exchangeable-alternative
+  constraint with a flexible function class--screened positively but its
+  canonical-CV gain shrank eight-fold versus the screen and its interval
+  crossed zero comfortably. Two different function classes (tree and neural)
+  now agree that the exact choice-likelihood objective was never the missing
+  lever; the hand-built interaction structure is what does the real work.
+- **Distribution-shift correction by retraining, not just reweighted
+  evaluation.** A genuine weighted-likelihood refit toward test-like
+  respondents (density-ratio weights, following @shimodaira2000) was
+  decisively harmful (bootstrap interval excluding zero on the harmful side):
+  down-weighting training respondents costs more effective sample size than
+  it gains from targeting the shifted population.
+- **Exact conditional-logit-consistent gradient boosting.** Wide multiclass
+  and ranking-loss xgboost do not directly optimize the four-way softmax
+  likelihood the way `mlogit` does. A custom xgboost objective enforcing the
+  true multinomial gradient (verified against finite differences) failed
+  cold-start, confirming that m8trpg's hand-built interaction structure, not
+  the loss function, was doing the real work; used as a small residual
+  correction on top of m8trpg's own fitted utility it gave a tiny,
+  statistically unconfirmed gain.
+- **A confirmed design-rotation structure.** Fingerprinting each
+  respondent's complete ordered 19-task design sequence shows the survey
+  reuses a pool of only **299 distinct questionnaire versions** across train
+  and test combined, consistent with standard commercial CBC rotation
+  defaults--a stronger, previously undetected version of the 98.5%
+  single-task recurrence above. A cross-fitted, utility-space penalized
+  correction to the opt-out option keyed by version was tested but rejected:
+  each version has only 3--5 sharing respondents, too few to support even one
+  well-shrunk parameter without being dominated by a single respondent.
+- **Two more tree-learner families and a pre-registered architecture
+  search.** LightGBM [@ke2017] and CatBoost [@prokhorenkova2018], whose native
+  categorical-splitting mechanisms differ from xgboost's, both received zero
+  ensemble weight. A
+  24-configuration neural architecture search, with its multiplicity
+  correction fixed *before* seeing any results, found a modestly better
+  network but correctly rejected it under the pre-declared rule.
 
 These results show why selection used predictive loss rather than p-values:
 several added terms had very small p-values yet worsened the holdout score.
@@ -231,19 +322,42 @@ submitting m8trpg alone. Despite being simpler, it scored **1.213 public**, a
 0.065979 CV-public gap--the largest among our trustworthy models--whereas
 ensemble_v11 scored 1.202 with a 0.056906 gap. Removing the weaker learner made
 the public result worse. The 20% xgboost component therefore acts as genuine
-variance reduction, not needless complexity, and ensemble_v11 remains our
+variance reduction, not needless complexity. Adding the neural-network
+component (Section 2.3) then improved both CV (1.145094 to 1.143789) and public
+score (1.202 to 1.201) together--a 0.057211 gap, consistent with the established
+0.052--0.057 pattern. This is the only refinement in the entire post-ensemble\_v11
+search whose public result was checked against its CV-predicted direction, and
+the direction matched. ensemble\_v11+MLP is therefore our retained
 private-leaderboard choice.
 
+A second, independent submission reinforces this rather than merely repeating
+it. A candidate combining the neural network with an additional
+price-by-income-by-mileage interaction reached the best pre-submission CV
+number of any untested candidate (1.143328) but its bootstrap interval against
+the current best already crossed zero; submitted anyway as the best available
+honest bet, it scored **1.210 public**--worse than the retained model, and
+outside a paired resampling simulation's predicted range. Its CV-public gap
+(0.0667) is the largest in the project, close to the plain-logit gap rather
+than the ensemble-class pattern. Both real submitted tests of a more flexible
+model against the plainer ensemble--the standalone logit and this
+interaction-augmented candidate--now favor the model actually in production.
+
 Leaderboard differences must also be interpreted at the respondent level. A
-reported competing public score of 1.187 is only 0.015 below ours. Resampling
-public-sized sets of 184 whole respondents from OOF predictions gave a
-single-score standard deviation of **0.0225**, 2.14 times the naive row-level
-estimate of 0.0105. Among pairs of equally generated samples, **64.6%** differed
-by at least 0.015. Thus, a 1.187 versus 1.202 public difference is a majority
-outcome under same-quality models and is not evidence of a missing breakthrough.
-The smaller private panel will be at least as composition-sensitive. Our best
-defense is respondent-grouped CV, observed (transferable) heterogeneity, and a
-diverse ensemble--not tuning to one public split.
+snapshot of the real public leaderboard (43 teams, 27 July 2026) placed us 16th
+of 43 at 1.201; the top 18 teams span only 0.016 of log loss, and 34 of 43
+teams--including the leader--sit within one noise-standard-deviation of our
+score. Resampling public-sized sets of 184 whole respondents from OOF
+predictions gave a single-score standard deviation of **0.0225**, 2.14 times the
+naive row-level estimate of 0.0105. Among pairs of equally generated samples,
+**64.6%** differed by at least 0.015--comparable to the gap separating most of
+the leaderboard's middle tier. The field's compression is therefore not an
+artifact of our own simulation: it is visible directly in contemporaneous,
+independently-scored results, and is consistent with most leaderboard gaps near
+our position reflecting sampling noise rather than a missing modeling
+breakthrough. The smaller private panel will be at least as
+composition-sensitive. Our best defense is respondent-grouped CV, observed
+(transferable) heterogeneity, and a diverse ensemble--not tuning to one public
+split.
 
 # Insights and limitations
 
@@ -255,6 +369,17 @@ random effects do not transfer to new people. Third, task position matters:
 the rising opt-out share is consistent with fatigue or satisficing over the
 19-choice sequence.
 
+A fourth insight is structural rather than behavioral: the questionnaire itself
+is far more repetitive than any single respondent's 19 tasks suggest.
+Fingerprinting each respondent's complete ordered design sequence (train and
+test combined) shows the whole study draws from a shared pool of only **299
+distinct questionnaire versions**, consistent with standard commercial
+conjoint-rotation practice. This explains the 98.5% single-task design
+recurrence as a property of the survey instrument rather than coincidence, but
+it does not translate into an exploitable feature: each version is shared by
+only 3--5 respondents, too few to support a version-specific parameter without
+that parameter being dominated by a single respondent's outcome.
+
 The remaining error looks broadly stochastic rather than concentrated in a
 fixable subgroup. Across OOF predictions, observed and predicted frequencies
 agree within 1--2 percentage points over most of the 0--0.8 probability range.
@@ -264,7 +389,19 @@ is flat across segment, task bucket, region, and true class. The worst 10% of
 tasks contribute 21.4% of total loss, rather than dominating it. A flexible
 xgboost model also fails to uncover a large omitted nonlinear signal. These
 checks support--but cannot prove--that 1.145 CV is near the practical floor
-using the observed variables.
+using the observed variables, a conclusion reinforced by an unusually large and
+diverse set of subsequent negative results (Section 3): alternative choice
+structures, distribution-shift correction by reweighting and by retraining,
+higher-order interactions, seed-bagging and cross-fitted shrinkage in both
+directions, an exact random-utility-consistent gradient-boosting objective, two
+further tree-learner families with different categorical-splitting mechanisms,
+a genuinely pre-registered architecture search, repeated cross-validation that
+overturned an apparent significant result rather than merely confirming ones
+already rejected, and the newly confirmed design-rotation structure all
+converge on the same 1.142--1.144 ceiling. Two real submitted comparisons of a
+more flexible model against the plainer ensemble both favor the ensemble, and
+an independently-run adversarial search--explicitly instructed not to stop
+early--reached the same conclusion via two more genuinely new experiments.
 
 Limitations remain. Stated choices contain unobserved taste and within-person
 inconsistency; train and test respondents differ measurably; absolute CV
