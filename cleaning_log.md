@@ -2147,3 +2147,49 @@ looked like the strongest lead in the whole project on a single split, and
 isn't once measured more carefully), and leaves prior-smoothed history as
 the only unconfirmed lead still not definitively rejected -- though repeated
 CV has now made its case measurably weaker too.
+
+## 2026-07-29: `triple_mlp_v13` submitted -- public 1.210, worse than predicted, and why
+
+With no candidate left whose respondent-bootstrap CI cleanly excluded zero,
+`submission_triple_mlp_v13.csv` (CV 1.143328, the best-CV unsubmitted
+candidate with a real stacking rationale) was submitted as the honest bet it
+always was -- not a confirmed improvement, but the best available one, with a
+paired-simulation-estimated 63.6% chance of beating the current best on a
+shared draw.
+
+**Result: public 1.210** -- worse than the current best (1.201), and worse
+than the paired simulation's own predicted range.
+
+- Gap vs. its own CV: **0.066672** -- larger than the established
+  0.052-0.057 pattern for the ensemble-family models, and close to the
+  standalone-mlogit/m8trpg-alone gap (0.065979) instead.
+- The paired-draw simulation (anchored to the current best's real 1.201,
+  built specifically to capture shared sampling luck between correlated
+  models) had predicted a 95% range of **[1.1979, 1.2033]** for this
+  candidate. The observed 1.210 falls **outside** that range, by 0.0067 --
+  a genuine miss, not just the simulation's own stated uncertainty playing
+  out.
+- This is consistent with, and now a second real data point for, the
+  extrapolation risk flagged before submission: the unbounded
+  Price x z(income) x z(mileage) term is most sensitive to a small number
+  of extreme-income respondents, and test is known to contain
+  proportionally more such respondents than the training-respondent
+  resampling used to build the simulation could represent. The simulation's
+  training-respondent-based resampling likely understated this model's real
+  generalization risk specifically because of that covariate-composition
+  difference, not because of ordinary sampling noise.
+- Combined with the earlier m8trpg-alone submission (1.213 public, gap
+  0.065979), this is now the **second** real, observed case in this project
+  where a model with additional flexible structure generalizes worse
+  publicly than its CV number alone would suggest, while the plainer,
+  lower-variance ensemble (v11+MLP) continues to hold the best public score.
+  Not a coincidence pattern from two data points alone, but a real,
+  concrete illustration -- worth keeping in the report -- of why the team
+  has stayed with the CV-selected ensemble rather than chasing the single
+  best CV number available at each step.
+
+**No change to the standing best.** `mlp_ensemble_v12_candidate` (1.143789
+CV / 1.201 public) remains the submission of record. No further untested
+candidate exists anywhere in the project's log with an unconfirmed but
+promising CV gain; the search is, at this point, genuinely exhausted rather
+than merely paused.

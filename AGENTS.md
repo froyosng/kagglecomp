@@ -324,15 +324,16 @@ open question**: no further lever has cleared the bar, and the 1.187 score
 specifically should not be treated as evidence of a missing modeling
 breakthrough.
 
-## Known weakness: CV-to-public gap, and what actually drives it (updated 2026-07-28)
+## Known weakness: CV-to-public gap, and what actually drives it (updated 2026-07-29)
 | Model | CV/Val | Public | Gap |
 |---|---|---|---|
 | mod1 | 1.236 | 1.270 | 0.034 |
 | mod7 | 1.202 | 1.230 | 0.028 |
 | ensemble_v9 | 1.152 | 1.204 | 0.052 |
 | ensemble_v11 (mlogit+xgboost blend) | 1.145 | 1.202 | 0.057 |
-| mlogit_m8trpg standalone (no xgboost) | 1.147 | 1.213 | **0.066 (largest)** |
+| mlogit_m8trpg standalone (no xgboost) | 1.147 | 1.213 | 0.066 |
 | ensemble_v11 + MLP (current best) | 1.1438 | 1.201 | 0.0572 |
+| triple_mlp_v13 (triple-interaction+xgb+MLP) | 1.1433 | 1.210 | **0.0667 (largest)** |
 
 The MLP candidate's gap (0.0572) sits right in line with ensemble_v9/v11's
 0.052-0.057 range -- another ensemble-class model, another similar gap, no
@@ -356,6 +357,26 @@ a reliable signal of which model generalizes better, and the earlier
 teammate reporting a competing team's public score of 1.187 (only 0.015 below
 ours, not the "low-1.1x" gap originally assumed) -- this test doesn't explain
 that score; it remains open.
+
+**2026-07-29 update -- `triple_mlp_v13` submitted, confirms the pattern a
+second way.** Best unsubmitted CV number in the project (1.143328, only
++0.000462 vs. the current best, CI crossing zero) was submitted as the
+honest best-available bet once repeated CV closed off every other lead.
+Result: public **1.210**, worse than the current best (1.201) and outside
+the paired-simulation's predicted 95% range ([1.1979, 1.2033]) by 0.0067 --
+not just noise playing out inside the simulation's own stated uncertainty.
+Its gap (0.0667) is now the largest in the project, close to the
+standalone-mlogit gap (0.066) rather than the ensemble-class 0.052-0.057
+range. Mechanism: the model's flagged extrapolation risk (an unbounded
+Price x z(income) x z(mileage) term, most sensitive to a handful of
+extreme-income respondents) was underestimated by a simulation built from
+training-respondent resampling, given that test is known to contain
+proportionally more such extreme respondents than training. **Second real
+submitted data point (after the m8trpg-alone test) showing a model with
+extra flexible structure generalizing worse publicly than its CV number
+alone predicted, while the plainer ensemble continues to hold the best
+public score** -- concrete evidence for the report's "why the ensemble
+should be retained" argument, not just a repeated assertion of it.
 
 ## Resolved: Codex modeling push (2026-07-27) -- 4-way ensemble candidate, not adopted
 Asked Codex (a separate coding agent, working in isolation on branch
@@ -583,7 +604,7 @@ contribution -- a real trade-off, not a bug. **No new candidate generated;
 the original 5-seed `submission_codex_mlp_v12_candidate.csv` remains the
 recommended submission** -- more seeds do not make it clearly better.
 
-## Untested candidate: triple interaction + MLP combined (2026-07-28)
+## Resolved: triple interaction + MLP combined -- submitted, worse public score (2026-07-28/29)
 Explicit push toward clearing public 1.2 (other teams reportedly at 1.186).
 The triple-interaction mlogit and the MLP were each validated independently
 but never blended together -- tested directly (own analysis, using already-
@@ -595,7 +616,7 @@ best-ever CV number (the 5-family ensemble's 1.143129). Vs. the current best
 zero**, not confirmed better than what's deployed. Vs. plain v11: gain
 +0.001767, CI **[+0.000054, +0.003420] -- excludes zero**, barely. A paired
 public-LB-sized simulation, anchored to the current best's real public score
-(1.201), implies a 95% range of **[1.1979, 1.2033]** with a **63.6% chance**
+(1.201), implied a 95% range of **[1.1979, 1.2033]** with a **63.6% chance**
 of beating the current best on the same draw -- a real, if not overwhelming,
 lean toward clearing 1.2. Same known caveat as the standalone triple
 candidate: sensitive to the same extreme-income test respondent (48 of 4997
@@ -603,11 +624,19 @@ rows show a >0.15 swing, max deviation 0.52) -- test has proportionally more
 such extreme respondents than training, so real-world variance could exceed
 the simulation's estimate.
 
-`submission_triple_mlp_v13.csv` is generated and validated (reuses the
-already-fit MLP full-data test predictions, fits mlogit+triple and xgboost
-fresh, blend weights 0.732/0.112/0.156) but **not yet submitted**. Best CV
-number of any queued-but-unsubmitted candidate, and the only one with a
-specific stacking rationale rather than a single untested lever.
+`submission_triple_mlp_v13.csv` (reuses the already-fit MLP full-data test
+predictions, fits mlogit+triple and xgboost fresh, blend weights
+0.732/0.112/0.156) was submitted 2026-07-29 as the best-available honest bet
+once repeated CV (see below) closed off every other candidate. **Result:
+public 1.210 -- worse than the current best (1.201), and outside the paired
+simulation's own predicted 95% range by 0.0067.** Gap vs. its CV (0.066672)
+is now the largest in the project. Consistent with the flagged extrapolation
+risk: the unbounded income x mileage term is most sensitive to a handful of
+extreme-income respondents, and test has proportionally more of them than
+the training-respondent-based simulation could represent. **Not promoted;
+the current best is unchanged.** See "Known weakness: CV-to-public gap"
+above and the 2026-07-29 cleaning-log entry for the full comparison against
+the earlier m8trpg-alone submission, which showed the same pattern.
 
 ## Resolved: deep learning, full stacking, LightGBM -- best-ever CV, still can't reach 1.186 (2026-07-28)
 Explicit push for public 1.186, needed for a good module grade (branch
@@ -879,22 +908,30 @@ to move the needle further.
    needs a PDF render (no Quarto/TeX in this environment -- use RStudio/
    Positron's bundled Quarto, or install Quarto+TinyTeX here), a page-count
    check against the 8-page limit, and a final wording/layout pass.
-2. `submission_triple_mlp_v13.csv` (CV 1.143328, not repeated-CV tested, own
-   gain vs. current best crosses zero: CI [-0.000754, +0.001642]) is the
-   best-CV unsubmitted candidate with a specific stacking rationale and
-   remains queued for the next submission slot. Only 2 Kaggle submissions/day
-   (shared team-wide) -- use CV to decide what's worth a slot. Clarence's
-   model still needs a fixed validation split before it's worth trusting or
+2. `submission_triple_mlp_v13.csv` was submitted 2026-07-29: public **1.210**,
+   worse than the current best (1.201) and outside the paired simulation's
+   predicted range -- see "Untested candidate" section above (now resolved)
+   and the 2026-07-29 cleaning-log entry. No submission slots currently have
+   a queued candidate; only 2 Kaggle submissions/day (shared team-wide), so
+   don't spend one without a CI that clearly excludes zero. Clarence's model
+   still needs a fixed validation split before it's worth trusting or
    submitting.
 3. As of 2026-07-29, no untested candidate anywhere in the project has a
    respondent-bootstrap CI that cleanly excludes zero against the current
-   best (1.143789 CV / 1.201 public) -- including the eight-component blend,
-   which looked like the strongest lead in the project on a single split but
-   failed under repeated CV (see section above). The realistic target for
-   further work is confirming or de-risking `submission_triple_mlp_v13.csv`,
-   not finding a new large gain; closing the ~0.015 gap to public 1.186 would
-   need roughly 10x any single improvement found anywhere in this session's
-   search. If a genuinely different structural idea surfaces, it's still
-   worth testing -- but exhaust it via CV before assuming it's a real gain.
-   The bar for spending a submission slot: the respondent-bootstrap CI must
-   clearly exclude zero, not just have a positive point estimate.
+   best (1.143789 CV / 1.201 public) -- the eight-component blend failed
+   under repeated CV, and `triple_mlp_v13` (the last remaining honest bet)
+   has now also been submitted and came back worse. The search is genuinely
+   exhausted, not merely paused: closing the ~0.015 gap to public 1.186
+   would need roughly 10x any single improvement found anywhere in this
+   session's search, and the two real submitted data points comparing a
+   flexible-structure model against the plainer ensemble (m8trpg-alone:
+   1.213 public; triple_mlp_v13: 1.210 public) both favor the ensemble
+   currently in production. **Recommendation: stop searching for a bigger
+   model gain and treat `mlp_ensemble_v12_candidate` as the final
+   submission**, redirecting remaining effort to the report (rendering,
+   page-count, and the write-up of this exhaustive search as a genuine
+   strength). If a fundamentally different structural idea surfaces, it's
+   still worth testing -- but exhaust it via CV before assuming it's a real
+   gain, and the bar for spending a submission slot remains: the
+   respondent-bootstrap CI must clearly exclude zero, not just have a
+   positive point estimate.
