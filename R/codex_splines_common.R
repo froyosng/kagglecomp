@@ -32,6 +32,18 @@ suppressPackageStartupMessages({
 source("R/codex_modeling_common.R")
 source("R/codex_shift_common.R")
 
+## ---- Small helpers reused from this project's established scripts --------
+
+# Identical to prepare_saved_long() in R/codex_triple_common.R: the cached
+# data_processed/train_val_split.rds long-format frames are pre-reshape but
+# don't yet have chid/d2/d3, unlike the fresh reshape_choice_long() output.
+prepare_saved_long <- function(df) {
+  df$chid <- paste(df$Case, df$Task, sep = "_")
+  df$d2 <- as.integer(df$alt == 2L)
+  df$d3 <- as.integer(df$alt == 3L)
+  df
+}
+
 ## ---- Candidate family -----------------------------------------------------
 
 # Map from the covariate name used in m8trpg's own term names (P_age/In_age
