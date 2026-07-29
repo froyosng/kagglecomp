@@ -847,6 +847,46 @@ cleanly excludes zero against the current best -- the search has reached
 the point where further iteration on already-tried techniques is unlikely
 to move the needle further.
 
+## Resolved: price-only history isolation -- closes the last open lead (2026-07-29)
+The one remaining unrejected lead (prior-smoothed design history, `both_k3`)
+bundled a stable, negative-across-folds price-anchoring term with an
+attribute-familiarity term whose sign flipped across folds. Isolating the
+price term alone -- pre-registered (`codex_price_history_preregister.md`,
+committed before any fit) at the same k in {3,9,27} grid, straight to full
+five-fold CV plus the same five repeated-CV seeds already used for `both_k3`,
+no single-split screen gate -- is a legitimate, materially different
+follow-up, not a re-run.
+
+Before running anything: directly checked the raw CSVs and confirmed this
+dataset is genuinely **partial-profile** (exactly 9 of 19 attributes active
+per alternative in all 21,565 rows, alt 4 always all-zero) -- matching this
+file's own finding #2, not an external assumption of full-profile design.
+Doesn't reopen a lever (active-attribute count never varies; which 9 are
+active is already absorbed by the existing `factor(attribute)` terms and the
+design-cell/299-version fingerprints).
+
+Canonical CV: all three candidates (1.142918755 / 1.142911201 / 1.142956136,
+gains +0.000768/+0.000775/+0.000730, 4/5 folds) match or slightly beat
+`both_k3`'s own canonical gain. Repeated CV (6 fold assignments,
+100,000-replicate bootstrap): point gains +0.000602/+0.000615/+0.000592, all
+95% CIs crossing zero (e.g. `price_only_k9` [-0.000252,+0.001476]), 6/6
+repeats positive, and the price coefficient negative in **all 30 of 30**
+fold fits for every candidate (full sign stability). Per the pre-registered
+rule, all three pass 3 of 4 criteria and fail only the family-adjusted lower
+bound -- **none promoted.**
+
+Dropping the noisy attribute term neither unlocked hidden signal it had been
+masking nor cost anything -- point estimates and stability are close to
+identical to the bundled version's. This is a cleaner null than before: it
+rules out the specific hypothesis that the attribute term was suppressing
+the price term's confirmability. The effect is real and directionally
+coherent but its size (~0.0006) sits inside the same respondent-level noise
+floor (bootstrap SD ~0.0004-0.0005) that has closed every other near-miss
+this session. **Not adopted; no submission made.** Full detail in
+`codex_price_history_findings.md`. The one remaining materially-different
+angle -- a version borrowing strength from *other*, similar versions rather
+than the single global population prior already used -- was not attempted.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
@@ -919,19 +959,33 @@ to move the needle further.
 3. As of 2026-07-29, no untested candidate anywhere in the project has a
    respondent-bootstrap CI that cleanly excludes zero against the current
    best (1.143789 CV / 1.201 public) -- the eight-component blend failed
-   under repeated CV, and `triple_mlp_v13` (the last remaining honest bet)
-   has now also been submitted and came back worse. The search is genuinely
-   exhausted, not merely paused: closing the ~0.015 gap to public 1.186
-   would need roughly 10x any single improvement found anywhere in this
-   session's search, and the two real submitted data points comparing a
-   flexible-structure model against the plainer ensemble (m8trpg-alone:
-   1.213 public; triple_mlp_v13: 1.210 public) both favor the ensemble
-   currently in production. **Recommendation: stop searching for a bigger
-   model gain and treat `mlp_ensemble_v12_candidate` as the final
+   under repeated CV, `triple_mlp_v13` (the last remaining honest bet) has
+   now also been submitted and came back worse, and the price-only isolation
+   of the last unrejected lead (design-history) also failed its
+   family-adjusted bound (see "Resolved: price-only history isolation"
+   above). The search is genuinely exhausted, not merely paused: closing the
+   ~0.015 gap to public 1.186 would need roughly 10x any single improvement
+   found anywhere in this session's search, and the two real submitted data
+   points comparing a flexible-structure model against the plainer ensemble
+   (m8trpg-alone: 1.213 public; triple_mlp_v13: 1.210 public) both favor the
+   ensemble currently in production. **Recommendation: stop searching for a
+   bigger model gain and treat `mlp_ensemble_v12_candidate` as the final
    submission**, redirecting remaining effort to the report (rendering,
    page-count, and the write-up of this exhaustive search as a genuine
    strength). If a fundamentally different structural idea surfaces, it's
    still worth testing -- but exhaust it via CV before assuming it's a real
    gain, and the bar for spending a submission slot remains: the
    respondent-bootstrap CI must clearly exclude zero, not just have a
-   positive point estimate.
+   positive point estimate. Two specific, not-yet-attempted structural ideas
+   remain on the table if someone wants to keep pushing: (a) a version-level
+   correction that lets each questionnaire version borrow strength from
+   *other*, similar versions (a genuinely different mechanism from both the
+   already-rejected per-version-isolated Newton correction and the already-
+   tested single-global-population history prior), and (b) a shared-
+   alternative-utility function implemented as a weight-shared neural network
+   rather than the already-tried shared-utility tree booster (which failed
+   cold-start) -- untested combination of a function class that's shown real
+   ensemble-diversity value (the shallow/deep MLP) with a constraint
+   (alternative exchangeability) that's only been tried with trees so far.
+   Neither has been scoped in detail or implemented; both would need their
+   own pre-registration before running.

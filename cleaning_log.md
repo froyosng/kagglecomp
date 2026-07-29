@@ -2148,6 +2148,111 @@ isn't once measured more carefully), and leaves prior-smoothed history as
 the only unconfirmed lead still not definitively rejected -- though repeated
 CV has now made its case measurably weaker too.
 
+## 2026-07-29: isolating the price-only history mechanism from `both_k3` -- also closes, cleanly
+
+A fresh brief (a new session taking over as modelling lead, having read this
+file and `AGENTS.md` in full) correctly flagged prior-smoothed history as the
+one lead not yet definitively rejected, and specifically proposed the one
+follow-up this project's own discipline had deliberately not taken: refitting
+`both_k3`'s price-gap-to-reference term **alone**, without the attribute-
+familiarity term whose coefficient sign flipped across folds while the price
+term stayed negative and stable in every fold. The original round correctly
+didn't cherry-pick that refit out of a pre-specified candidate set at the
+time -- doing it now, as its own pre-registered experiment, is legitimate.
+
+Two things were checked and corrected before any new fit:
+
+- **The brief assumed this dataset is full-profile.** Checked directly
+  against `csv files/train.csv`: for all 21,565 rows, alternatives 1-3 have
+  exactly 9 of 19 attributes active (non-zero) in every single row, and
+  alternative 4 has every attribute at exactly 0. This is a genuine, constant
+  partial-profile design, matching AGENTS.md's finding #2 exactly, not the
+  brief's premise. It doesn't reopen anything: the active-attribute count
+  never varies (nothing to exploit in "how many are shown"), and *which* 9
+  are active is already fully absorbed by the existing `factor(attribute)`
+  terms (level 0 already serves as "not featured") and by the already-tested
+  design-cell/299-version fingerprints. Flagged back rather than silently
+  adopting either version.
+- The version-Newton correction was confirmed already closed and not
+  re-attempted, as instructed.
+
+Pre-registered (`codex_price_history_preregister.md`, committed at `011b254`
+before any fit): three candidates -- `hist_prior_price_gap_k3/k9/k27`, reusing
+the exact prior-strength grid already fixed in `history_prior_specs` (not a
+new grid picked after seeing anything), attribute term dropped entirely. Per
+the brief, no single-split screen gate was used this time -- all three went
+straight to canonical five-fold CV (seed 4821) plus the same five repeated-CV
+seeds already used for `both_k3` (`1907, 2719, 6151, 8293, 104729`), so the
+result is directly comparable. `original_xgb`/`shallow_mlp` for the five
+additional seeds were reused byte-for-byte from the already-cached repeated-CV
+checkpoints (`data_processed/codex_repeat_cv/checkpoints/`) -- only the mlogit
+component was refit, matching this project's established fixed-blend pattern.
+
+Two plumbing validations were run and hard-asserted **before** trusting any
+new candidate: reconstructing the already-logged `both_k3` result from
+scratch, for canonical fold 1 (max abs diff vs. the cached value: **exactly
+0**) and for repeat-seed-1907 fold 1's raw mlogit prediction (max abs diff:
+**2.22e-16**, machine epsilon). Both passed on the second attempt -- the
+first attempt's validation function compared the raw mlogit prediction
+against the cached *blended* ensemble value (an apples-to-oranges bug in the
+validation code itself, caught by its own `stopifnot` before any real
+candidate was fit, not a plumbing problem in the fold/prior reconstruction).
+
+**Canonical CV (seed 4821):**
+
+| Candidate | Baseline | Candidate | Gain | Folds improved |
+|---|---:|---:|---:|---:|
+| `price_only_k3` | 1.143686618 | 1.142918755 | +0.000767863 | 4/5 |
+| `price_only_k9` | 1.143686618 | 1.142911201 | +0.000775417 | 4/5 |
+| `price_only_k27` | 1.143686618 | 1.142956136 | +0.000730482 | 4/5 |
+
+All three match or slightly beat `both_k3`'s own canonical gain (+0.000735168)
+-- dropping the noisy attribute term cost nothing on this split.
+
+**Repeated CV (6 fold assignments, 100,000-replicate respondent bootstrap):**
+
+- `price_only_k3`: point gain +0.000602, 95% CI [-0.000212, +0.001409],
+  family-3 CI [-0.000393, +0.001598], win rate 92.6%.
+- `price_only_k9`: point gain +0.000615, 95% CI [-0.000252, +0.001476],
+  family-3 CI [-0.000446, +0.001678], win rate 91.7%.
+- `price_only_k27`: point gain +0.000592, 95% CI [-0.000289, +0.001467],
+  family-3 CI [-0.000486, +0.001667], win rate 90.6%.
+
+All three improved in **6/6 repeats** (24/30 individual folds each), and the
+price-history coefficient is **negative in all 30 of 30 fold fits, for every
+candidate** -- full sign stability, exceeding the pre-registered >=27/30 bar
+and, if anything, cleaner than the bundled `both_k3` version needed to be.
+Individual fold gains range from about -0.0023 to +0.0016 -- real fold-to-fold
+variance, but the direction and coefficient sign never waver.
+
+Per the rule fixed before running (gain>0, family-3 lower bound>0, >=5/6
+positive repeats, >=27/30 negative-coefficient folds), all three candidates
+pass three of four criteria and **fail only the family-adjusted lower bound**
+(-0.000393 to -0.000486) -- none promoted.
+
+**Interpretation:** isolating the price-only mechanism neither unlocked
+hidden signal the attribute term had been masking, nor cost anything --
+point estimates and sign-stability are close to identical to the bundled
+version's. The price-anchoring effect is real and directionally coherent (a
+coefficient negative in 100% of 30 independent fits is not what a pure-noise
+term produces), but its own size (~0.0006) sits inside the same respondent-
+level noise floor (bootstrap SD ~0.0004-0.0005) that has closed out every
+other near-miss this session. This is a cleaner, more informative null than
+simply re-confirming `both_k3`'s ambiguity: it rules out the specific
+hypothesis that the attribute term was the reason the bundled candidate
+couldn't clear the bar.
+
+**Not adopted; no submission made.** This closes the design-history lead in
+both its bundled and isolated forms. The one remaining, materially different
+angle flagged in the brief -- a version explicitly borrowing strength from
+*other*, similar versions (rather than the global single-population prior
+`history_design_prior()` already uses, or the per-version-only estimate the
+already-rejected Newton correction used) -- was not attempted this round.
+Full detail in `codex_price_history_findings.md` and
+`codex_price_history_preregister.md`; implementation in
+`R/codex_price_history_only.R`; raw output in
+`data_processed/codex_price_history/`.
+
 ## 2026-07-29: `triple_mlp_v13` submitted -- public 1.210, worse than predicted, and why
 
 With no candidate left whose respondent-bootstrap CI cleanly excluded zero,
