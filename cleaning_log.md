@@ -2473,3 +2473,51 @@ recommendation. This is now the third independent search effort this session
 modelling-lead session, and this four-way parallel dispatch) to conclude, via
 genuinely new hypotheses each time rather than repeated re-litigation, that no
 further gain clears the project's pre-registered promotion bar.
+
+## 2026-07-29: three more genuinely new experiments, run outside a git branch -- two more near-misses, one clean reject
+
+A fourth wave of new hypotheses arrived directly as R scripts (not a git
+branch) while this round's work was in progress. Three had already fully run
+by the time they were reviewed; a fourth (SVM ensemble-diversity) was still
+being run live by the user in RStudio and is logged separately once
+complete. All three were independently re-verified from raw cached
+artifacts -- recomputing log loss and per-respondent gain directly from the
+saved prediction matrices, and rerunning the bootstrap with fresh seeds not
+used by the original run -- before being logged here.
+
+- **Choice-set geometry/crowding features**: decomposes each inside
+  alternative's pairwise similarity to its two choice-set competitors (on
+  attributes, and jointly with price) into set-mean, own-centered, and
+  nearest-excess components -- a genuinely different mechanism from the
+  existing price-rank/gap terms, which only use price. Canonical CV
+  +0.000110667 (CI [-0.000186,+0.000408], a pre-registered near miss),
+  auto-escalated to repeated CV: pooled +0.000102185, CI still crossing zero,
+  6/6 repeats positive. Independently reproduced to 9 decimal places on both
+  stages.
+- **Component-wise exact-softmax residual boosting**: a stagewise,
+  coordinate-wise additive boosting procedure over m8trpg's fitted utility
+  (used as a fixed offset), letting regularized stagewise selection pick
+  which linear/interaction terms earn a place -- genuinely different from
+  both the earlier custom-xgboost exact-likelihood objective (tree-based) and
+  the manual/SHAP-guided interaction search (hand-picked terms tested one at
+  a time). Canonical CV +0.0000649 (barely a near miss), repeated CV pooled
+  +0.0000382, still crossing zero, 6/6 repeats positive but tiny -- the
+  smallest confirmed-consistent-direction near-miss of the whole session, an
+  order of magnitude below anything that has ever cleared the bar.
+- **Price-curve curvature shrinkage**: tests whether the saturated,
+  unconstrained 12-level price factor (Section 2.1.1 of the report) is
+  overfit and would benefit from partial pooling toward a smoother curve.
+  **Clean, decisive reject** -- canonical CV -0.001901387, CI
+  [-0.003549,-0.000267] entirely below zero, correctly not escalated since
+  this was a decisive negative rather than a near miss. Genuinely useful
+  negative: confirms the existing saturated price treatment is not
+  overfit and should not be shrunk, reinforcing rather than undermining a
+  load-bearing part of the model's design.
+
+Two of the three (geometry, componentwise-boost) followed the now-familiar
+pattern of a consistently-signed, auto-escalation-triggering near-miss that
+still fails once repeated CV adds genuine fold-assignment variance --
+consistent with, not an exception to, this project's established finding
+that small positive point estimates at this respondent count routinely fail
+to survive more rigorous re-measurement. **No submission made; no change to
+the standing best.**

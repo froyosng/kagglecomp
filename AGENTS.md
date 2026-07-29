@@ -981,6 +981,37 @@ four-way parallel dispatch) to conclude, via genuinely new hypotheses each
 time, that nothing clears the promotion bar. `mlp_ensemble_v12_candidate`
 (1.143789 CV / 1.201 public) remains the final recommendation.
 
+## Resolved: three more genuinely new experiments, two near-misses + one clean reject (2026-07-29)
+A fourth wave of new hypotheses arrived directly as R scripts (not a git
+branch); three had already fully run before review, a fourth (SVM
+ensemble-diversity) was run live by the user in RStudio and is logged
+separately. All three reviewed here were independently re-verified from raw
+cached artifacts (log loss and per-respondent gain recomputed directly from
+saved prediction matrices, bootstrap rerun with fresh seeds) before logging.
+
+- **Choice-set geometry/crowding features** (each inside alternative's
+  pairwise attribute/price similarity to its two choice-set competitors,
+  decomposed into set-mean/own-centered/nearest-excess -- different from the
+  existing price-only rank/gap terms): canonical CV +0.000110667 (near miss),
+  repeated CV pooled +0.000102185, still crosses zero, 6/6 repeats positive.
+- **Component-wise exact-softmax residual boosting** (stagewise additive
+  boosting over m8trpg's fitted-utility offset, letting regularized
+  selection pick terms rather than testing a hand-picked set): canonical CV
+  +0.0000649 (barely a near miss), repeated CV pooled +0.0000382, still
+  crosses zero -- the smallest confirmed-consistent-direction near-miss of
+  the session, an order of magnitude below anything that has ever cleared
+  the bar.
+- **Price-curve curvature shrinkage** (tests whether the saturated 12-level
+  price factor is overfit and would benefit from smoothing): **clean,
+  decisive reject** (CV -0.001901387, CI entirely below zero) -- confirms the
+  existing saturated price treatment (Section 2.1.1 of the report) is not
+  overfit, reinforcing rather than undermining that part of the model.
+
+Same qualitative pattern as most of this session's near-misses: a small,
+consistently-signed positive effect that doesn't survive repeated-CV's added
+fold-assignment variance. **No submission made; no change to the standing
+best.**
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
