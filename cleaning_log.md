@@ -2061,3 +2061,89 @@ history, specifically the price-reference mechanism), and demonstrates that
 proper pre-registration -- decided this session as a design principle after
 repeatedly needing after-the-fact multiplicity corrections -- works exactly
 as intended when actually followed.
+
+## 2026-07-29: Repeated CV puts both near-miss candidates to a harder test -- neither survives
+
+The two closest unconfirmed leads from the overnight round -- prior-smoothed
+history features (CV gain +0.000735 on the canonical split, CI barely
+missing zero) and the eight-component arithmetic blend (CV 1.142112, the
+best-ever number, whose canonical-split CI barely *cleared* zero at the
+ordinary threshold) -- were both re-tested against a harder, pre-registered
+bar: do they still hold up under repeated cross-validation, not just the one
+canonical fold assignment?
+
+Branch `codex-repeat-cv` (merged at `64d9c0e`) pre-registered the design
+*before* running it (commit `b452966`, independently verified to predate the
+harness/results commits by git timestamp): five additional genuine
+respondent-grouped five-fold refits (seeds `1907, 2719, 6151, 8293, 104729`,
+alongside the canonical `4821`), with every component -- m8trpg,
+triple-interaction mlogit, original/retuned/rank-ndcg xgboost, glmnet-Cox,
+shallow MLP, deep MLP -- refit completely from scratch inside every new fold
+(verified directly in `R/codex_repeated_cv.R`: each fold's `source_wide`/
+`source_long` genuinely excludes the held-out respondents via
+`train$Case %in% validation_cases`, and blend weights are chosen
+fold-cross-fitted, using only the other folds). The promotion rule was fixed
+in advance: gain positive, family-adjusted lower bound above zero, and at
+least 5 of 6 repeat-level estimates positive.
+
+**Both candidates improved in all 6/6 repeats -- but the pooled interval
+still crosses zero for both:**
+
+- History (`both_k3`): mean gain across repeats **+0.000574**, ordinary 95%
+  CI **[-0.000239, +0.001381]**, family-13-adjusted lower bound -0.000621.
+- Eight-component blend: mean gain **+0.001169**, ordinary 95% CI
+  **[-0.000199, +0.002513]**, family-6-adjusted lower bound -0.000689.
+
+This is the same qualitative pattern seen before with seed-bagging the MLP:
+a consistent, always-positive direction across every repeat (24/30 and
+22/30 individual folds respectively) does not by itself guarantee the
+*pooled* respondent-level interval clears zero, because repeated CV reduces
+fold-assignment/algorithm noise but does not create new independent
+respondents or erase the original search's multiplicity. The eight-component
+candidate's canonical-split CI had barely excluded zero; averaging over five
+more genuine splits pulled the point estimate down and widened the interval
+back across zero -- exactly the kind of result repeated CV is supposed to
+be able to reveal, and the reason it was worth the compute.
+
+**A concrete new reason not to submit the eight-component blend anyway:**
+an outlier audit (independently re-run, not just read from the write-up)
+found its largest test-set change versus the current submission is
+**0.362630** in probability, concentrated on `No=22637` -- the same known
+extreme-income respondent (`incomea=3,800,000`) flagged earlier for the
+standalone triple-interaction candidate. All 19 of that respondent's rows
+move by more than 0.05, 17 by more than 0.10, 12 by more than 0.15, and the
+triple-interaction mlogit (47.9% of this blend's weight) alone differs by up
+to 0.68 on that row. A candidate whose repeated-CV interval already crosses
+zero and whose largest test-set movements are concentrated on an
+extrapolative respondent is not one to spend a submission slot on.
+
+The one pre-registered follow-up -- adding the history-prior terms directly
+into the triple-interaction mlogit component and using that richer model in
+place of the plain triple component -- failed its own single-split screen
+(1.157992 vs. the plain triple model's 1.157576, worse) and was correctly
+not carried to full CV, per the frozen screen-then-freeze rule.
+
+The requested respondent-bootstrap bagging of the whole m8trpg model was not
+re-run: it is already a completed, logged negative result (15-bag average
+worsened the blend from 1.145094 to 1.145658, every learning-curve point
+harmful) from the 2026-07-27 round, and re-running an already-exhausted
+negative experiment would have wasted the compute budget.
+
+Independently re-verified before merging: re-ran `R/codex_repeat_cv_audit.R`
+myself rather than trusting the findings write-up -- it recomputes log loss
+and per-respondent gains directly from the saved raw probability matrices
+(not from cached summary numbers), reconstructs the bootstrap summary
+statistics from the raw 100,000-replicate draws, and rebuilds the submission
+CSV from its eight weighted components byte-for-byte. All numbers matched
+the write-up exactly. Also read the fold-construction code directly to
+confirm each repeat's held-out respondents are genuinely excluded from that
+fold's training data before refitting, not just relabeled from cached OOF
+predictions.
+
+**No Kaggle submission was made.** The submitted `mlp_ensemble_v12_candidate`
+(1.143789 CV / 1.201 public) remains the standing best. This closes the
+eight-component-blend question with a second, more rigorous negative (it
+looked like the strongest lead in the whole project on a single split, and
+isn't once measured more carefully), and leaves prior-smoothed history as
+the only unconfirmed lead still not definitively rejected -- though repeated
+CV has now made its case measurably weaker too.

@@ -758,6 +758,66 @@ closed definitively; the prior-smoothed history lead remains open (worth
 revisiting if further evidence accumulates); the pre-registration discipline
 worked exactly as designed.
 
+## Resolved: repeated CV puts both near-misses to a harder test -- neither survives (2026-07-29)
+Pre-registered (branch `codex-repeat-cv`, commit `64d9c0e`, merged into
+`zhenhao`; pre-registration commit `b452966` independently verified via git
+timestamp to predate all results) re-test of the two closest overnight
+near-misses against 5 additional genuine respondent-grouped five-fold refits
+(seeds 1907/2719/6151/8293/104729, alongside canonical 4821) -- every
+component refit from scratch per fold, verified directly in
+`R/codex_repeated_cv.R` (held-out respondents genuinely excluded from
+`source_wide`/`source_long` before refitting; fold-cross-fitted blend
+weights). Promotion required gain>0, family-adjusted lower bound>0, and
+>=5/6 positive repeats -- fixed before results were seen.
+
+- **Prior-smoothed history features**: mean gain across repeats **+0.000574**,
+  ordinary 95% CI **[-0.000239, +0.001381]** -- still crosses zero, slightly
+  worse than the single-split estimate.
+- **Eight-component arithmetic blend**: mean gain **+0.001169**, ordinary 95%
+  CI **[-0.000199, +0.002513]**. This is the more important result -- the
+  canonical single-split CI had barely *excluded* zero
+  ([0.0000466, 0.0032790]); repeated CV pulled the pooled estimate back
+  across zero. Exactly what repeated CV is for: distinguishing a real gain
+  from a favorable fold-assignment draw.
+- Both candidates improved in **6/6 repeats** (24/30 and 22/30 individual
+  folds respectively) -- consistent direction, but pooled respondent-level
+  uncertainty still dominates.
+- **New reason to avoid the eight-component blend regardless**: independently
+  re-audited `submission_codex_8component_candidate.csv` (valid file, never
+  submitted) and found severe extrapolation on the same known extreme-income
+  respondent (`No=22637`) flagged for the standalone triple-interaction
+  candidate -- max probability change 0.362630, driven by the
+  triple-interaction mlogit's 47.9% blend weight (differs by up to 0.683
+  alone on that row).
+- The one pre-registered joint history+triple-interaction mlogit follow-up
+  failed its own single-split screen (1.157992 vs. plain triple's 1.157576)
+  and correctly did not proceed to CV.
+- Respondent-bootstrap bagging of the whole m8trpg model was correctly not
+  re-run -- already a completed, logged negative (2026-07-27: 1.145094 ->
+  1.145658, every point harmful).
+
+Independently re-verified before merging: re-ran `R/codex_repeat_cv_audit.R`
+myself (not just read the write-up) -- it recomputes log loss and
+per-respondent gains directly from raw saved probability matrices, rebuilds
+the bootstrap summary from the raw 100,000-replicate draws, and
+reconstructs the submission CSV byte-for-byte from its 8 weighted
+components; every number matched exactly. Also read the fold-construction
+code directly to confirm genuine per-fold respondent exclusion.
+
+**No Kaggle submission was made.** This closes the eight-component-blend
+question with a second, more rigorous negative -- it looked like the
+project's single best lead on one split, and isn't once measured more
+carefully. `submission_triple_mlp_v13.csv` (CV 1.143328, its own gain vs.
+current best also crosses zero: CI [-0.000754, +0.001642]) was **not**
+re-tested under repeated CV and remains the best-CV unsubmitted candidate
+with a specific stacking rationale, still queued for a submission slot.
+Prior-smoothed history is the only lead not yet definitively rejected,
+though repeated CV has made its case measurably weaker too. At this point,
+no untested candidate in the project has a respondent-bootstrap CI that
+cleanly excludes zero against the current best -- the search has reached
+the point where further iteration on already-tried techniques is unlikely
+to move the needle further.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
@@ -812,19 +872,29 @@ worked exactly as designed.
   scripts and write-up are kept for reproducibility.
 
 ## Next steps
-1. Update `competition_report.qmd` to reflect the new best model
-   (`ensemble_v11 + MLP`, public 1.201) in place of `ensemble_v11` as the
-   headline result, then render to PDF and do a final wording/layout pass
-   (no Quarto/TeX available in this environment yet).
-2. Only 2 Kaggle submissions/day (shared team-wide) -- use CV to decide what's
-   worth a slot. Clarence's model still needs a fixed validation split before
-   it's worth trusting or submitting. `submission_triple_income_miles.csv` and
-   `submission_ensemble_v12_4way.csv` remain queued for future slots.
-3. If a genuinely different structural idea surfaces (see "open question"
-   above), it's worth testing -- but exhaust it via CV before assuming it's a
-   real gain, given how many individually-significant terms have turned out to
-   hurt validation this session. The bar for spending a submission slot: the
-   respondent-bootstrap CI must clearly exclude zero, not just have a positive
-   point estimate -- confirmed to actually matter in practice now that the MLP
-   candidate (the only one to clear that bar) is also the only one confirmed to
-   improve the public score.
+1. `competition_report.qmd` has been updated to reflect the new best model
+   (`ensemble_v11 + MLP`, public 1.201) as the headline result, plus the
+   extensive post-ensemble_v11 negative-result campaign and the confirmed
+   299-version structural finding; `references.bib` updated to match. Still
+   needs a PDF render (no Quarto/TeX in this environment -- use RStudio/
+   Positron's bundled Quarto, or install Quarto+TinyTeX here), a page-count
+   check against the 8-page limit, and a final wording/layout pass.
+2. `submission_triple_mlp_v13.csv` (CV 1.143328, not repeated-CV tested, own
+   gain vs. current best crosses zero: CI [-0.000754, +0.001642]) is the
+   best-CV unsubmitted candidate with a specific stacking rationale and
+   remains queued for the next submission slot. Only 2 Kaggle submissions/day
+   (shared team-wide) -- use CV to decide what's worth a slot. Clarence's
+   model still needs a fixed validation split before it's worth trusting or
+   submitting.
+3. As of 2026-07-29, no untested candidate anywhere in the project has a
+   respondent-bootstrap CI that cleanly excludes zero against the current
+   best (1.143789 CV / 1.201 public) -- including the eight-component blend,
+   which looked like the strongest lead in the project on a single split but
+   failed under repeated CV (see section above). The realistic target for
+   further work is confirming or de-risking `submission_triple_mlp_v13.csv`,
+   not finding a new large gain; closing the ~0.015 gap to public 1.186 would
+   need roughly 10x any single improvement found anywhere in this session's
+   search. If a genuinely different structural idea surfaces, it's still
+   worth testing -- but exhaust it via CV before assuming it's a real gain.
+   The bar for spending a submission slot: the respondent-bootstrap CI must
+   clearly exclude zero, not just have a positive point estimate.
