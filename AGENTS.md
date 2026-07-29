@@ -887,6 +887,39 @@ this session. **Not adopted; no submission made.** Full detail in
 angle -- a version borrowing strength from *other*, similar versions rather
 than the single global population prior already used -- was not attempted.
 
+## Resolved: shared-alternative-utility MLP -- screens well, fails CV by 8x (2026-07-29)
+Filled the one untested cell of a 2x2 the brief asked about: shared-
+alternative-utility constraint (already tried, tree function class, cold-
+start failure) x neural function class (already adopted, but never with the
+shared-weight/exchangeable-alternative constraint -- the existing shallow/
+deep MLP concatenate all 4 alternatives into one flat row per task). Built a
+weight-shared torch MLP applied identically to each alternative's own
+feature row (opt-out included, its all-zero profile is just another valid
+input), trained on the exact 4-way cross-entropy via task-grouped batching.
+Feature treatment mirrors m8trpg's own established choices (one-hot
+attributes/price/segment/region/ppark, standardized continuous covariates,
+existing price-gap/rank context) for a fair comparison.
+
+Two real bugs caught via smoke-testing before the full run: an off-by-4
+assertion (task rows vs. row count) and checkpointing a raw torch
+`state_dict` across process restarts (invalid external pointer on reload) --
+fixed to checkpoint only the plain prediction matrix, matching
+`R/codex_torch_deep_mlp.R`'s existing safe pattern.
+
+Screen (single split): all 3 architectures give a positive incremental gain,
+best (`shared_64_32`) +0.001724 -- comparable to previously-promoted
+screens, despite the component alone being far weaker than m8trpg. Pre-
+registered the frozen winner and a stopping rule (only escalate to repeated
+CV if canonical CI excludes zero) before running CV. **Canonical five-fold
+CV: gain drops 8x to +0.000143**, respondent-bootstrap 95% CI
+[-0.000567, +0.000850], win rate 65.5% -- crosses zero comfortably, unlike
+the price-history near-miss. Per the pre-registered rule, repeated CV was
+correctly not run. **Not adopted; no submission made.** Closes the shared-
+utility-objective direction: two different function classes (tree, neural)
+now agree the exchangeability constraint and exact likelihood were never
+the missing lever -- m8trpg's hand-built interaction structure is what does
+the real work. Full detail in `codex_shared_utility_mlp_findings.md`.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
@@ -960,32 +993,31 @@ than the single global population prior already used -- was not attempted.
    respondent-bootstrap CI that cleanly excludes zero against the current
    best (1.143789 CV / 1.201 public) -- the eight-component blend failed
    under repeated CV, `triple_mlp_v13` (the last remaining honest bet) has
-   now also been submitted and came back worse, and the price-only isolation
-   of the last unrejected lead (design-history) also failed its
-   family-adjusted bound (see "Resolved: price-only history isolation"
-   above). The search is genuinely exhausted, not merely paused: closing the
-   ~0.015 gap to public 1.186 would need roughly 10x any single improvement
-   found anywhere in this session's search, and the two real submitted data
-   points comparing a flexible-structure model against the plainer ensemble
-   (m8trpg-alone: 1.213 public; triple_mlp_v13: 1.210 public) both favor the
-   ensemble currently in production. **Recommendation: stop searching for a
-   bigger model gain and treat `mlp_ensemble_v12_candidate` as the final
-   submission**, redirecting remaining effort to the report (rendering,
-   page-count, and the write-up of this exhaustive search as a genuine
-   strength). If a fundamentally different structural idea surfaces, it's
-   still worth testing -- but exhaust it via CV before assuming it's a real
-   gain, and the bar for spending a submission slot remains: the
-   respondent-bootstrap CI must clearly exclude zero, not just have a
-   positive point estimate. Two specific, not-yet-attempted structural ideas
-   remain on the table if someone wants to keep pushing: (a) a version-level
-   correction that lets each questionnaire version borrow strength from
-   *other*, similar versions (a genuinely different mechanism from both the
-   already-rejected per-version-isolated Newton correction and the already-
-   tested single-global-population history prior), and (b) a shared-
-   alternative-utility function implemented as a weight-shared neural network
-   rather than the already-tried shared-utility tree booster (which failed
-   cold-start) -- untested combination of a function class that's shown real
-   ensemble-diversity value (the shallow/deep MLP) with a constraint
-   (alternative exchangeability) that's only been tried with trees so far.
-   Neither has been scoped in detail or implemented; both would need their
-   own pre-registration before running.
+   now also been submitted and came back worse, the price-only isolation of
+   the design-history lead failed its family-adjusted bound, and the
+   shared-alternative-utility MLP (a genuinely new function-class x
+   constraint combination) screened well but failed canonical CV by 8x (see
+   the two "Resolved" sections above). The search is genuinely exhausted,
+   not merely paused: closing the ~0.015 gap to public 1.186 would need
+   roughly 10x any single improvement found anywhere in this session's
+   search, and the two real submitted data points comparing a flexible-
+   structure model against the plainer ensemble (m8trpg-alone: 1.213 public;
+   triple_mlp_v13: 1.210 public) both favor the ensemble currently in
+   production. **Recommendation: stop searching for a bigger model gain and
+   treat `mlp_ensemble_v12_candidate` as the final submission**, redirecting
+   remaining effort to the report (rendering, page-count, and the write-up
+   of this exhaustive search as a genuine strength). If a fundamentally
+   different structural idea surfaces, it's still worth testing -- but
+   exhaust it via CV before assuming it's a real gain, and the bar for
+   spending a submission slot remains: the respondent-bootstrap CI must
+   clearly exclude zero, not just have a positive point estimate. One
+   specific, not-yet-attempted structural idea remains on the table if
+   someone wants to keep pushing: a version-level correction that lets each
+   questionnaire version borrow strength from *other*, similar versions (a
+   genuinely different mechanism from both the already-rejected
+   per-version-isolated Newton correction and the already-tested
+   single-global-population history prior) -- not yet scoped in detail or
+   implemented, and its theoretical motivation is weaker than either closed
+   lead's was (versions are arbitrary fixed designs from the same pool, not
+   obviously related to each other in a way that should make one version's
+   opt-out utility informative about another's).

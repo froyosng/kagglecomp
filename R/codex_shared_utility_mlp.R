@@ -32,13 +32,30 @@
 # Stages:
 #   CODEX_SHARED_MLP_STAGE=define - load reusable functions only
 #   CODEX_SHARED_MLP_STAGE=screen - single-split (seed 7402) architecture screen
+#   CODEX_SHARED_MLP_STAGE=cv     - canonical five-fold CV of the frozen winner
+#     (see codex_shared_utility_mlp_preregister.md)
 
 options(stringsAsFactors = FALSE)
 suppressPackageStartupMessages(library(torch))
 source("R/codex_modeling_common.R")
 
 stage <- Sys.getenv("CODEX_SHARED_MLP_STAGE", "screen")
-stopifnot(stage %in% c("define", "screen"))
+stopifnot(stage %in% c("define", "screen", "cv"))
+
+build_full_long <- function(wide) {
+  pat <- paste0(
+    "^(", paste(c(attrs, "Price", "Ch"), collapse = "|"), ")([1-4])$"
+  )
+  fixed_names <- names(wide)[!grepl(pat, names(wide))]
+  parts <- lapply(1:4, function(a) {
+    out <- wide[, fixed_names, drop = FALSE]
+    for (v in c(attrs, "Price", "Ch")) out[[v]] <- wide[[paste0(v, a)]]
+    out$alt <- a
+    out$chosen <- as.integer(out$Ch == 1)
+    out
+  })
+  do.call(rbind, parts)
+}
 
 output_dir <- "data_processed/codex_shared_utility_mlp"
 checkpoint_dir <- file.path(output_dir, "checkpoints")
@@ -306,18 +323,7 @@ shared_utility_configs <- list(
 if (stage == "screen") {
   split <- readRDS("data_processed/train_val_split.rds")
   full_train <- read.csv("csv files/train.csv")
-  full_long_pattern <- paste0(
-    "^(", paste(c(attrs, "Price", "Ch"), collapse = "|"), ")([1-4])$"
-  )
-  fixed_names <- names(full_train)[!grepl(full_long_pattern, names(full_train))]
-  full_long_parts <- lapply(1:4, function(a) {
-    out <- full_train[, fixed_names, drop = FALSE]
-    for (v in c(attrs, "Price", "Ch")) out[[v]] <- full_train[[paste0(v, a)]]
-    out$alt <- a
-    out$chosen <- as.integer(out$Ch == 1)
-    out
-  })
-  full_long <- do.call(rbind, full_long_parts)
+  full_long <- build_full_long(full_train)
   attr_levels <- compute_attr_levels(full_long)
 
   tr_long <- split$train_long_tr
@@ -430,4 +436,196 @@ if (stage == "screen") {
   )
   cat("\n=== rank:ndcg xgboost screen reference: 1.193073 (component alone) ===\n")
   print(result, digits = 9)
+}
+
+## ---- CV stage: frozen winner (shared_64_32), canonical five-fold CV ----
+
+shared_utility_frozen_config <- list(
+  hidden = c(64L, 32L), dropout = 0.10, weight_decay = 1e-4,
+  learning_rate = 1e-3, epochs = 60L, batch_tasks = 256L
+)
+shared_utility_frozen_seeds <- c(9401L, 9402L, 9403L)
+
+crossfit_incremental_shared <- function(truth, current, shared, row_fold,
+                                        weight_grid = seq(0, 0.40, by = 0.01)) {
+  prediction <- matrix(NA_real_, nrow(truth), 4L)
+  weights <- numeric(5L)
+  for (fold in 1:5) {
+    fit_rows <- row_fold != fold
+    validation_rows <- row_fold == fold
+    losses <- vapply(weight_grid, function(w) {
+      log_loss_matrix(
+        truth[fit_rows, , drop = FALSE],
+        (1 - w) * current[fit_rows, , drop = FALSE] +
+          w * shared[fit_rows, , drop = FALSE]
+      )
+    }, numeric(1))
+    weights[[fold]] <- weight_grid[[which.min(losses)]]
+    prediction[validation_rows, ] <-
+      (1 - weights[[fold]]) * current[validation_rows, , drop = FALSE] +
+      weights[[fold]] * shared[validation_rows, , drop = FALSE]
+  }
+  stopifnot(!anyNA(prediction))
+  list(
+    prediction = prediction, weights = weights,
+    logloss = log_loss_matrix(truth, prediction)
+  )
+}
+
+bootstrap_shared_gain <- function(truth, baseline, candidate, case,
+                                  n_boot = 100000L, seed = 4821L) {
+  row_loss <- function(prediction) {
+    prediction <- prediction / rowSums(prediction)
+    prediction <- pmin(pmax(prediction, 1e-15), 1)
+    -rowSums(truth * log(prediction))
+  }
+  case_gain <- unname(tapply(
+    row_loss(baseline) - row_loss(candidate), case, mean
+  ))
+  set.seed(seed)
+  n_case <- length(case_gain)
+  bootstrap <- numeric(n_boot)
+  for (start in seq.int(1L, n_boot, by = 1000L)) {
+    stop_at <- min(n_boot, start + 999L)
+    n_this <- stop_at - start + 1L
+    sampled <- matrix(
+      sample.int(n_case, n_case * n_this, replace = TRUE), nrow = n_case
+    )
+    bootstrap[start:stop_at] <- colMeans(matrix(
+      case_gain[sampled], nrow = n_case
+    ))
+  }
+  list(
+    summary = data.frame(
+      point_gain = mean(case_gain),
+      bootstrap_mean = mean(bootstrap),
+      bootstrap_sd = sd(bootstrap),
+      lower_95 = unname(quantile(bootstrap, 0.025)),
+      upper_95 = unname(quantile(bootstrap, 0.975)),
+      lower_99 = unname(quantile(bootstrap, 0.005)),
+      upper_99 = unname(quantile(bootstrap, 0.995)),
+      win_rate = mean(bootstrap > 0),
+      n_boot = n_boot
+    ),
+    case_gain = case_gain
+  )
+}
+
+if (stage == "cv") {
+  train <- read.csv("csv files/train.csv")
+  train <- train[order(train$No), , drop = FALSE]
+  stopifnot(identical(train$No, seq_len(nrow(train))))
+  truth <- as.matrix(train[, paste0("Ch", 1:4), drop = FALSE])
+  full_long <- build_full_long(train)
+  attr_levels <- compute_attr_levels(full_long)
+
+  base <- readRDS("data_processed/oof_ensemble_v10.rds")
+  fold_map <- base$fold_of_case
+  row_fold <- unname(fold_map[as.character(train$Case)])
+  shallow <- readRDS(
+    "data_processed/codex_behavioral_round/mlp_oof.rds"
+  )$oof[["h08_d0.100"]]
+  v11 <- 0.8 * base$oof_mlogit + 0.2 * base$oof_xgb
+  current <- 0.85 * v11 + 0.15 * shallow
+  stopifnot(
+    abs(log_loss_matrix(truth, current) - 1.143686618134879) < 1e-10
+  )
+
+  shared_oof <- matrix(NA_real_, nrow(train), 4L)
+  fit_rows <- list()
+
+  for (fold in 1:5) {
+    cat(sprintf("=== canonical fold %d/5 ===\n", fold))
+    flush.console()
+    validation_cases <- as.integer(names(fold_map)[fold_map == fold])
+    train_rows_long <- !(full_long$Case %in% validation_cases)
+    valid_rows_long <- full_long$Case %in% validation_cases
+    train_long <- full_long[train_rows_long, , drop = FALSE]
+    valid_long <- full_long[valid_rows_long, , drop = FALSE]
+
+    scaler <- shared_utility_scaler(train_long)
+    train_features <- build_shared_utility_features(
+      train_long, attr_levels, scaler
+    )
+    valid_features <- build_shared_utility_features(
+      valid_long, attr_levels, scaler
+    )
+
+    prefix <- file.path(checkpoint_dir, sprintf("cv_fold_%d", fold))
+    fitted <- fit_shared_utility_average(
+      train_features$x, train_features$truth, valid_features$x,
+      shared_utility_frozen_config,
+      seeds = shared_utility_frozen_seeds + fold * 10L,
+      checkpoint_prefix = prefix
+    )
+    # fitted$prediction rows are ordered by valid_features$no (one row per
+    # task, in ascending No order from build_shared_utility_features); place
+    # them directly by matching against train$No.
+    row_target <- match(valid_features$no, train$No)
+    stopifnot(
+      !anyNA(row_target),
+      all(train$Case[row_target] %in% validation_cases),
+      length(row_target) == length(unique(row_target))
+    )
+    shared_oof[row_target, ] <- fitted$prediction
+
+    fit_rows[[fold]] <- cbind(data.frame(fold = fold), fitted$fits)
+    cat(sprintf(
+      "fold %d component loss: %.9f\n", fold,
+      log_loss_matrix(truth[row_target, , drop = FALSE], fitted$prediction)
+    ))
+    flush.console()
+  }
+  stopifnot(
+    !anyNA(shared_oof),
+    max(abs(rowSums(shared_oof) - 1)) < 1e-6
+  )
+
+  component_loss <- log_loss_matrix(truth, shared_oof)
+  incremental <- crossfit_incremental_shared(
+    truth, current, shared_oof, row_fold
+  )
+  bootstrap <- bootstrap_shared_gain(
+    truth, current, incremental$prediction, train$Case
+  )
+
+  summary <- data.frame(
+    config = "shared_64_32",
+    component_logloss = component_loss,
+    current_logloss = log_loss_matrix(truth, current),
+    incremental_logloss = incremental$logloss,
+    incremental_gain_vs_current =
+      log_loss_matrix(truth, current) - incremental$logloss
+  )
+  weight_rows <- data.frame(fold = 1:5, weight = incremental$weights)
+
+  write.csv(
+    summary, file.path(output_dir, "shared_utility_mlp_cv.csv"),
+    row.names = FALSE
+  )
+  write.csv(
+    weight_rows, file.path(output_dir, "shared_utility_mlp_cv_weights.csv"),
+    row.names = FALSE
+  )
+  write.csv(
+    do.call(rbind, fit_rows),
+    file.path(output_dir, "shared_utility_mlp_cv_fits.csv"),
+    row.names = FALSE
+  )
+  write.csv(
+    cbind(data.frame(config = "shared_64_32"), bootstrap$summary),
+    file.path(output_dir, "shared_utility_mlp_cv_bootstrap.csv"),
+    row.names = FALSE
+  )
+  saveRDS(
+    list(
+      shared_oof = shared_oof, current = current, truth = truth,
+      row_fold = row_fold, summary = summary, weights = incremental$weights,
+      bootstrap = bootstrap, case = train$Case
+    ),
+    file.path(output_dir, "shared_utility_mlp_cv.rds")
+  )
+  print(summary, digits = 10)
+  print(weight_rows, digits = 6)
+  print(bootstrap$summary, digits = 10)
 }

@@ -2253,6 +2253,88 @@ Full detail in `codex_price_history_findings.md` and
 `R/codex_price_history_only.R`; raw output in
 `data_processed/codex_price_history/`.
 
+## 2026-07-29: shared-alternative-utility MLP -- screens well, fails canonical CV
+
+The same brief's next-priority direction: a shared-alternative-utility model
+on the exact 4-way softmax objective, but with a genuinely different
+function class than what was already tried. The earlier shared-utility round
+(2026-07-28, "shared-utility exact-softmax models" section above) used a
+custom xgboost objective and failed even the single-split screen cold-start
+(1.218569 vs. v11's 1.160568) -- that round's conclusion was "the loss
+function wasn't the bottleneck, m8trpg's hand-built features were always
+doing the real work." The other half of that same conclusion had never been
+separately tested: is a shared-weight NEURAL function, not a tree, still
+unable to compete, or does its ability to smoothly interpolate matter?
+Separately, the project's existing shallow/deep MLP components already use a
+neural net -- but not a shared-weight one (they concatenate all 4
+alternatives' features into a single flat input row per task, so they don't
+respect alternative exchangeability the way m8trpg's generic slopes or a
+true random-utility model does). This experiment is the missing cell: a
+weight-shared MLP, applied identically to each alternative's own feature row
+(including the opt-out's structurally distinct all-zero profile), trained on
+the exact 4-way cross-entropy via task-grouped batching in torch.
+
+Feature treatment deliberately mirrors m8trpg's own established choices
+(one-hot attribute codes and Price -- reusing the confirmed price-as-factor
+and categorical-attribute non-linearity findings -- one-hot segment/region/
+ppark, standardized continuous income/age/miles/night/gender/urbanicity/
+education, plus the existing price-gap/is-cheapest/is-dearest/Task_c context
+engineering) so a negative result can't be blamed on a weaker feature set
+than the rest of this project's models get.
+
+Two real bugs were caught by smoke-testing small fits before committing to
+the full run, not left to surface mid-way through an expensive CV: (1) an
+assertion inside the seed-averaging helper compared the per-task prediction
+matrix's row count against the per-ROW validation-matrix count instead of
+per-task (an off-by-4 in the stopifnot, not the actual softmax/prediction
+logic, which was already correct); (2) checkpointing `model$state_dict()`
+directly -- torch's R bindings wrap C++ tensors behind external pointers that
+are not valid once the process that created them exits, so a checkpoint
+written by one `Rscript` invocation crashed ("external pointer is not
+valid") when a second invocation's cache-hit tried to reuse it. Fixed by
+checkpointing only the plain-R prediction matrix and scalar metrics, matching
+`R/codex_torch_deep_mlp.R`'s own `fit_torch_once` pattern exactly -- that
+script never serializes a live model object across runs, only its already-
+materialized predictions, for exactly this reason.
+
+**Screen (single split, seed 7402):** all 3 pre-specified architectures give
+a positive incremental blend gain into the current ensemble, despite the
+component alone being far weaker than m8trpg (1.147021) or even rank:ndcg
+xgboost's own screen number (1.193073) -- best (`shared_64_32`, hidden 64-32)
+reaches +0.001724 at blend weight 0.13, a screen magnitude comparable to
+several candidates that were promoted to CV earlier this session. Pre-
+registered (`codex_shared_utility_mlp_preregister.md`, committed before any
+CV fit) the frozen winner per the established screen-then-freeze rule, plus
+a stopping rule: only proceed to repeated CV if the canonical CV's ordinary
+95% CI excludes zero.
+
+**Canonical five-fold CV:** component alone 1.247219 (pooled, weak as
+expected); fold-cross-fitted incremental blend (weights 0.04-0.09,
+noticeably smaller than the screen's single-split weight of 0.13):
+1.143686618 -> 1.143543142, gain **+0.000143476**. Respondent-bootstrap 95%
+CI **[-0.000567, +0.000850]** (99% CI [-0.000782, +0.001078]), win rate
+65.5%. This is an **8x drop** from the single-split screen's +0.001724 --
+the single 80/20 split materially overstated this component's value once
+genuinely evaluated across 5 independent held-out groups. Unlike the
+price-history near-miss (CI barely missing zero), this interval crosses zero
+comfortably, not narrowly. Per the pre-registered stopping rule, repeated CV
+was correctly not run -- the canonical result alone is a sufficient reject,
+and spending the additional compute on repeated CV for a gap this wide would
+not have been a good use of the remaining time before the competition
+closes.
+
+**Not adopted; no submission made.** This closes the shared-utility-objective
+direction the brief asked to investigate: the earlier tree-based cold-start
+failure and this neural cold-start result now agree, via two structurally
+different function classes, that the exchangeable-utility constraint and the
+exact choice likelihood were never the missing lever -- m8trpg's hand-built
+feature/interaction structure is what does the real work in this dataset,
+not the learner's functional form. Full detail in
+`codex_shared_utility_mlp_findings.md` and
+`codex_shared_utility_mlp_preregister.md`; implementation in
+`R/codex_shared_utility_mlp.R`; raw output in
+`data_processed/codex_shared_utility_mlp/`.
+
 ## 2026-07-29: `triple_mlp_v13` submitted -- public 1.210, worse than predicted, and why
 
 With no candidate left whose respondent-bootstrap CI cleanly excluded zero,
