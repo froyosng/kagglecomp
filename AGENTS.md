@@ -920,6 +920,67 @@ now agree the exchangeability constraint and exact likelihood were never
 the missing lever -- m8trpg's hand-built interaction structure is what does
 the real work. Full detail in `codex_shared_utility_mlp_findings.md`.
 
+## Resolved: four parallel experiments, all null -- search remains exhausted (2026-07-29)
+After the report was rendered, four genuinely new hypotheses were dispatched
+as parallel background agents, each in its own isolated git worktree, each
+pre-registering before running and explicitly told which already-rejected
+result not to repeat. All four finished and were independently re-verified
+from raw cached artifacts (not just their write-ups) before logging.
+
+- **Smooth splines** (age/mileage/income Price/inside interactions,
+  materially different from the rejected binned version): only `miles_df3`
+  passed screening; canonical CV looked promising (+0.000709, 84.6% win rate)
+  but crossed zero, triggering repeated CV (the same escalation rule that
+  caught the eight-component blend); pooled repeated-CV gain +0.000352, CI
+  still crosses zero. Coefficients stayed dense/stable across all 30 fits --
+  genuinely avoids the rejected version's quasi-separation failure, just
+  doesn't clear the bar.
+- **Transductive test-covariate adaptation** (quantile-mapped moment matching
+  + confident self-training, both mechanistically different from the two
+  already-rejected reweighting-based shift corrections): both null.
+  Quantile-matching's isolated mlogit effect was real (+0.000172) but diluted
+  below the noise floor by ensemble blend weights; self-training only had
+  0.4-0.6% of test tasks confident enough to matter.
+- **Version-pool (neighbor-smoothed) opt-out correction** (lets a
+  questionnaire version borrow Newton gradient/curvature mass from
+  design-similar versions, rather than the rejected per-version-isolated
+  estimate): null (gain -0.0000231, CI crossing zero), but with a genuine
+  mechanistic diagnosis -- pooling makes the exact 0/1-peer respondents it
+  targets *worse* (-0.0013, -0.0009), direct evidence design-marginal
+  similarity between CBC versions doesn't carry transferable signal.
+- **Bayesian hierarchical mixed logit** (`bayesm::rhierMnlRwMixture` MCMC with
+  explicit priors, since `rstan`/`brms` needed an unavailable C++ toolchain --
+  disclosed before running): re-tests the already-rejected frequentist mixed
+  logit under a completely different estimation philosophy. Population-level
+  posterior-predictive scoring for held-out respondents was smoke-tested
+  against a deliberately-wrong comparison first (confirmed a large,
+  unambiguous difference) to rule out silent leakage. Result: not just null
+  but a small, fairly confident **harm** (gain -0.0006138, CI [-0.0012461,
+  +0.0000324], 3.16% win rate) -- confirms the mixed-logit rejection isn't a
+  frequentist-estimation artifact.
+
+**Two process notes.** (1) The parallel-worktree dispatch did not reliably
+branch every worker from `zhenhao`'s tip -- two of four (version-pool,
+Bayesian mixed logit) were rooted in a stale `main` snapshot from
+2026-07-26, missing nearly this whole session's `AGENTS.md`. Caught via
+`git merge-base`, not assumed. Did not appear to compromise either result
+(each brief already contained the specific relevant rejected finding
+verbatim, and every number was independently reproduced from raw data
+regardless), but worth fixing before relying on this pattern again --
+worktrees should be explicitly checked out from `zhenhao`, or have the
+current three canonical files copied in, before a worker starts. (2) The
+Bayesian mixed-logit worker hit the platform's monthly API spend limit after
+finishing its analysis but before committing/pushing; nothing was lost (full
+computation and write-up were on disk), and the coordinating session
+independently verified and committed/pushed on its behalf.
+
+**No submission made; no change to the standing best.** This is now the
+third independent search effort this session (this session's own history,
+a separate adversarially-instructed modelling-lead session, and this
+four-way parallel dispatch) to conclude, via genuinely new hypotheses each
+time, that nothing clears the promotion bar. `mlp_ensemble_v12_candidate`
+(1.143789 CV / 1.201 public) remains the final recommendation.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),

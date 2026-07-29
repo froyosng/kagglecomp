@@ -2380,3 +2380,96 @@ CV / 1.201 public) remains the submission of record. No further untested
 candidate exists anywhere in the project's log with an unconfirmed but
 promising CV gain; the search is, at this point, genuinely exhausted rather
 than merely paused.
+
+## 2026-07-29: four parallel, independently-verified experiments -- all null, search remains exhausted
+
+After the report was finalized and rendered, four genuinely new hypotheses were
+dispatched as parallel background agents, each in its own isolated git
+worktree, each pre-registering before running anything and explicitly told
+which already-rejected result it must not repeat. All four have now finished,
+been independently re-verified from raw cached artifacts (not just their
+write-ups), and pushed to their own branches without touching `zhenhao`.
+
+- **Smooth splines on age/mileage/income interactions.** Replaced the current
+  linear treatment with natural cubic splines (`ns()`), a materially different
+  functional form from the already-rejected categorical/binned version (which
+  caused quasi-separation). Only `miles_df3` passed the single-split screen;
+  canonical CV looked promising (+0.000709, 84.6% bootstrap win rate) but the
+  CI crossed zero, triggering the pre-registered repeated-CV escalation --
+  exactly the same pattern that caught the eight-component blend earlier. Six
+  fold-seed assignments pooled to +0.000352, CI still crossing zero. Genuinely
+  informative negative: coefficients stayed dense and stable across all 30
+  fits (no runaway sparse-cell coefficient like the rejected binned version),
+  confirming this is a real, clean test of smooth nonlinearity, not a repeat
+  of the earlier failure mode -- it just isn't large enough to confirm.
+- **Transductive test-covariate adaptation.** Two candidates, both
+  mechanistically different from the two already-rejected shift corrections
+  (which reweighted existing respondents' likelihood): quantile-mapped moment
+  matching (a genuinely nonlinear recoding onto test's known covariate
+  distribution, verified algebraically to not be reproducible by any affine
+  reparameterization) and confident self-training (pseudo-labeling the
+  model's own >0.85-confidence test predictions, with an explicit
+  anti-circularity stress test showing a ~10x gap between the circular and
+  honest evaluation numbers). Both null: quantile-matching's isolated
+  mlogit-level effect was real and directionally consistent (+0.000172) but
+  diluted below the noise floor by the ensemble's ~92% non-mlogit-interaction
+  weight; self-training only had 0.4-0.6% of test tasks confident enough to
+  use, too small an intervention to matter.
+- **Version-pool (neighbor-smoothed) opt-out correction.** Let a
+  questionnaire version borrow Newton gradient/curvature mass from other,
+  design-similar versions, rather than being estimated in isolation (the
+  design that killed the original `version_newton_optout_correction`). Null,
+  gain -0.0000231, CI crossing zero -- but with a genuinely mechanistic
+  diagnosis, not just a wide interval: splitting per-respondent gain by
+  own-version peer count shows pooling makes the exact zero/one-peer
+  respondents it was built to rescue *worse* (-0.0013, -0.0009), while
+  already-well-served respondents see a small, insignificant gain. Direct
+  evidence that design-marginal similarity between two CBC questionnaire
+  versions doesn't carry transferable opt-out signal.
+- **Bayesian hierarchical mixed logit.** Re-tested the already-rejected
+  frequentist mixed logit under a completely different estimation philosophy
+  -- proper Bayesian MCMC (`bayesm::rhierMnlRwMixture`, since `rstan`/`brms`
+  needed a C++ toolchain this environment doesn't have, disclosed before
+  running) with explicit hierarchical priors, rather than simulated maximum
+  likelihood. The single highest correctness risk -- whether a held-out
+  respondent's prediction accidentally uses an in-sample shrinkage estimate
+  that shouldn't exist for a genuinely new person -- was smoke-tested with a
+  deliberately-wrong comparison first (confirmed a large, unambiguous
+  difference between the correct population-marginal prediction and the wrong
+  individual-posterior one) before trusting the real run. Result: not just
+  null but a small, fairly confident **harm** (gain -0.0006138, CI
+  [-0.0012461, +0.0000324], only 3.16% of bootstrap replicates favor it).
+  Confirms, via a genuinely different estimation method, that the earlier
+  mixed-logit rejection wasn't an artifact of frequentist estimation --
+  respondent-level random effects structurally cannot help prediction for
+  people the model has never seen, regardless of how carefully they're
+  estimated.
+
+**Two process notes worth recording.** First, the parallel-worktree dispatch
+mechanism did not reliably branch every worker from the current `zhenhao` tip
+-- two of the four (version-pool, Bayesian mixed logit) ended up rooted in a
+much older snapshot of `main` (from 2026-07-26, missing nearly the entire
+session's accumulated findings in `AGENTS.md`), while the other two (splines,
+transductive) correctly branched from the current tip. This was caught by
+checking `git merge-base` against `zhenhao` for each pushed branch, not
+assumed. It did not appear to compromise either affected experiment's
+validity -- each worker's own dispatch brief already contained the specific
+already-rejected result most relevant to its hypothesis verbatim, and both
+experiments' actual numbers were independently reproduced from raw data
+regardless of what context the worker started with -- but it is a real gap to
+fix before relying on this pattern again: worktrees should be explicitly
+checked out from `zhenhao` (or have the current `AGENTS.md`/`cleaning_log.md`/
+`submissions_log.csv` copied in) before a worker starts, not assumed. Second,
+the Bayesian mixed-logit worker hit the platform's monthly API spend limit
+after finishing its analysis and findings write-up but before committing and
+pushing; its results were not lost (the full computation and write-up were
+already on disk), and the coordinating session independently verified them
+and committed/pushed the branch on the worker's behalf.
+
+**No submission made in this round; no change to the standing best.**
+`mlp_ensemble_v12_candidate` (1.143789 CV / 1.201 public) remains the
+recommendation. This is now the third independent search effort this session
+(this session's own accumulated history, the separate adversarially-instructed
+modelling-lead session, and this four-way parallel dispatch) to conclude, via
+genuinely new hypotheses each time rather than repeated re-litigation, that no
+further gain clears the project's pre-registered promotion bar.
