@@ -64,25 +64,30 @@ predictions before calculating log loss. Model improvements were judged by
 paired respondent bootstrap comparisons, whose standard deviation was about
 0.001, rather than by coefficient significance alone.
 
-# Best model: ensemble\_v11 + neural ensemble diversity
+# Best model: ensemble\_v11 + neural ensemble diversity + set-context network
 
-Our best submitted model blends the earlier **ensemble\_v11** with a small
-feed-forward neural network:
+Our best submitted model adds a set-context feed-forward network on top of
+the earlier **ensemble\_v11 + MLP**:
 
 $$
-\hat{\mathbf p}=0.85\,\hat{\mathbf p}_{\text{v11}}+0.15\,\hat{\mathbf p}_{\text{mlp}},
+\hat{\mathbf p}=0.889\,\hat{\mathbf p}_{\text{v11+mlp}}+0.111\,\hat{\mathbf p}_{\text{setctx}},
+\qquad
+\hat{\mathbf p}_{\text{v11+mlp}}=0.85\,\hat{\mathbf p}_{\text{v11}}+0.15\,\hat{\mathbf p}_{\text{mlp}},
 \qquad
 \hat{\mathbf p}_{\text{v11}}=0.80\,\hat{\mathbf p}_{\text{m8trpg}}+
 0.20\,\hat{\mathbf p}_{\text{xgb}}.
 $$
 
-It achieves **1.143789 respondent-grouped CV log loss and 1.201 public
-leaderboard log loss**, improving on both counts over ensemble\_v11
-(1.145094 CV / 1.202 public) and substantially over the 1.38629 benchmark.
-This is the only refinement, out of dozens tested after ensemble\_v11, whose
-respondent-bootstrap confidence interval cleared our pre-stated significance
-bar, and it is also the only one whose public-leaderboard result was checked
-against its CV prediction (Section 4).
+It achieves **1.143533 respondent-grouped CV log loss and 1.200 public
+leaderboard log loss**, improving on both counts over ensemble\_v11+MLP
+(1.143789 CV / 1.201 public) and substantially over the 1.38629 benchmark.
+Its canonical-split confidence interval was a wide near-miss, but six
+additional independent fold-seed assignments (repeated cross-validation)
+strengthened the signal rather than weakening it--the reverse of this
+project's usual near-miss pattern--and cleared our pre-stated significance
+bar. This is the second refinement, out of many dozens tested after
+ensemble\_v11, whose public-leaderboard result was checked against its
+CV-predicted direction and matched (Section 4).
 
 ## Structured conditional-logit component
 
@@ -166,7 +171,26 @@ variants with native categorical handling, distribution-shift corrections,
 higher-order interactions, and design-structure corrections described below),
 to clear this bar, and it was submitted for exactly that reason.
 
-# Alternatives tried
+## Set-context network
+
+The final component learns, rather than hand-builds, choice-set context.
+Every model above encodes each alternative's own attributes and price plus a
+handful of hand-designed context features (`is_cheapest`, `price_gap_min/max`).
+A feed-forward network instead takes, for each alternative, its own features
+together with a permutation-invariant summary of the *other* alternatives in
+the same task [@zaheer2017]--in the spirit of set-pooling architectures for
+inputs with no natural ordering. Scoring **1.261810 CV alone**, it is the
+weakest standalone component yet contributes real, confirmed ensemble value
+via the same weak-alone-but-diverse pattern already established for xgboost
+and the shallow network. Its canonical five-fold CV gain was a wide,
+low-confidence near miss (mean **+0.000153**, 64% bootstrap win rate),
+triggering our pre-registered escalation to six independent fold-seed
+assignments; the pooled repeated-CV gain came back **larger**, not smaller
+(**+0.001164**, 95% interval **[+0.000011, +0.002318]**, excluding zero, with
+all six repeats positive). Before submission, the full-data build was
+required to reproduce identically across two independent training runs
+(maximum difference **0.0**), guarding against any silent nondeterminism in
+the network fit.
 
 Table 1 reports the main progression on comparable respondent-grouped
 validation. Single-split figures are shown only for early models that predated
@@ -184,7 +208,8 @@ the canonical five-fold harness.
 | m8trp | Saturated price + cheapest/dearest rank | 1.1516 (CV) | -- |
 | m8trpg | Add price-gap magnitudes | 1.1470 (CV) | 1.213 |
 | ensemble_v11 | 80% m8trpg + 20% xgboost | 1.1451 (CV) | 1.202 |
-| **ensemble_v11+MLP** | **+15% feed-forward net** | **1.1438 (CV)** | **1.201** |
+| ensemble_v11+MLP | +15% feed-forward net | 1.1438 (CV) | 1.201 |
+| **+ set-context network** | **+11% set-pooling net** | **1.1435 (CV)** | **1.200** |
 
 : Main model progression. Lower log loss is better. {#tbl-models}
 
@@ -281,6 +306,17 @@ negative result rather than an unexamined ceiling:
   24-configuration neural architecture search, with its multiplicity
   correction fixed *before* seeing any results, found a modestly better
   network but correctly rejected it under the pre-declared rule.
+- **A further wave of four independently-verified experiments.** Learned
+  choice-set-crowding features and a stagewise, component-wise boosting
+  correction on m8trpg's fitted utility were both consistently-signed but
+  tiny near misses that failed repeated cross-validation (gains of
+  +0.000102 and +0.000038); a curvature-shrunk version of the saturated
+  price factor was a clean, decisive reject (-0.0019), confirming that
+  factor is not overfit; a calibrated radial-basis-function support vector
+  machine--a materially different function class from every tree or neural
+  component tried--scored worse alone than any other component and, unlike
+  xgboost or the shallow network, made the ensemble worse rather than
+  better.
 
 These results show why selection used predictive loss rather than p-values:
 several added terms had very small p-values yet worsened the holdout score.
@@ -325,22 +361,34 @@ the public result worse. The 20% xgboost component therefore acts as genuine
 variance reduction, not needless complexity. Adding the neural-network
 component (Section 2.3) then improved both CV (1.145094 to 1.143789) and public
 score (1.202 to 1.201) together--a 0.057211 gap, consistent with the established
-0.052--0.057 pattern. This is the only refinement in the entire post-ensemble\_v11
-search whose public result was checked against its CV-predicted direction, and
-the direction matched. ensemble\_v11+MLP is therefore our retained
-private-leaderboard choice.
+0.052--0.057 pattern. At the time, this was the only refinement in the entire
+post-ensemble\_v11 search whose public result was checked against its
+CV-predicted direction and matched--though, as the next submission below shows,
+not the last.
 
 A second, independent submission reinforces this rather than merely repeating
 it. A candidate combining the neural network with an additional
 price-by-income-by-mileage interaction reached the best pre-submission CV
-number of any untested candidate (1.143328) but its bootstrap interval against
-the current best already crossed zero; submitted anyway as the best available
-honest bet, it scored **1.210 public**--worse than the retained model, and
-outside a paired resampling simulation's predicted range. Its CV-public gap
-(0.0667) is the largest in the project, close to the plain-logit gap rather
-than the ensemble-class pattern. Both real submitted tests of a more flexible
-model against the plainer ensemble--the standalone logit and this
-interaction-augmented candidate--now favor the model actually in production.
+number of any untested candidate at the time (1.143328) but its bootstrap
+interval against the current best already crossed zero; submitted anyway as
+the best available honest bet, it scored **1.210 public**--worse than the
+retained model, and outside a paired resampling simulation's predicted
+range. Its CV-public gap (0.0667) is the largest in the project, close to
+the plain-logit gap rather than the ensemble-class pattern.
+
+A third submission then broke the losing streak. The set-context network
+(Section 2.4) cleared our bar via repeated cross-validation and was added to
+the ensemble at an 11.1% weight, frozen from the mean of six cross-fitted
+fold weights and locked behind a full-data build that was required to
+reproduce identically across two independent runs before submission. It
+scored **1.200 public**, improving on the prior best (1.201) with a
+0.056467 CV-public gap--again inside the 0.052--0.057 ensemble-class
+pattern, not the wider gap seen for the two flexible-model submissions
+above. This is the second time a CV-predicted improvement direction has
+been confirmed on the public leaderboard, and together with the price-curve
+and interaction-augmented submissions it forms a consistent three-point
+pattern: well-behaved ensemble-class additions transfer reliably, while
+additions with unbounded or high-variance structure do not.
 
 Leaderboard differences must also be interpreted at the respondent level. A
 snapshot of the real public leaderboard (43 teams, 27 July 2026) placed us 16th
@@ -388,20 +436,27 @@ calibration; 36.3% of misses have a probability gap above 0.30, but their rate
 is flat across segment, task bucket, region, and true class. The worst 10% of
 tasks contribute 21.4% of total loss, rather than dominating it. A flexible
 xgboost model also fails to uncover a large omitted nonlinear signal. These
-checks support--but cannot prove--that 1.145 CV is near the practical floor
-using the observed variables, a conclusion reinforced by an unusually large and
-diverse set of subsequent negative results (Section 3): alternative choice
-structures, distribution-shift correction by reweighting and by retraining,
-higher-order interactions, seed-bagging and cross-fitted shrinkage in both
-directions, an exact random-utility-consistent gradient-boosting objective, two
-further tree-learner families with different categorical-splitting mechanisms,
-a genuinely pre-registered architecture search, repeated cross-validation that
-overturned an apparent significant result rather than merely confirming ones
-already rejected, and the newly confirmed design-rotation structure all
-converge on the same 1.142--1.144 ceiling. Two real submitted comparisons of a
-more flexible model against the plainer ensemble both favor the ensemble, and
-an independently-run adversarial search--explicitly instructed not to stop
-early--reached the same conclusion via two more genuinely new experiments.
+checks support--but cannot prove--that 1.143--1.145 CV is near the practical
+floor using the observed variables, a conclusion reinforced by an unusually
+large and diverse set of subsequent negative results (Section 3): alternative
+choice structures, distribution-shift correction by reweighting and by
+retraining, higher-order interactions, seed-bagging and cross-fitted shrinkage
+in both directions, an exact random-utility-consistent gradient-boosting
+objective, two further tree-learner families with different
+categorical-splitting mechanisms, a genuinely pre-registered architecture
+search, repeated cross-validation that overturned an apparent significant
+result rather than merely confirming ones already rejected, the newly
+confirmed design-rotation structure, and a further wave of learned choice-set
+features, stagewise boosting, price-curve shrinkage, and a kernel-machine
+diversity component, all converging on the same narrow ceiling. Three real
+submitted comparisons of a more flexible or differently-structured model
+against the plainer ensemble now exist: two favor the plainer ensemble
+(the standalone logit and the interaction-augmented candidate), while the
+third--the set-context network, itself a plain ensemble-class addition
+rather than an unbounded or high-variance one--confirmed a genuine, if
+small, improvement. An independently-run adversarial search--explicitly
+instructed not to stop early--reached the same exhaustion conclusion via
+two more genuinely new experiments before the set-context result arrived.
 
 Limitations remain. Stated choices contain unobserved taste and within-person
 inconsistency; train and test respondents differ measurably; absolute CV
