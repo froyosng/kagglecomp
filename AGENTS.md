@@ -1012,6 +1012,35 @@ consistently-signed positive effect that doesn't survive repeated-CV's added
 fold-assignment variance. **No submission made; no change to the standing
 best.**
 
+## Resolved: calibrated SVM as ensemble diversity -- new function class, still not competitive (2026-07-30)
+The fourth new script from the same wave (run live by the user in RStudio,
+~4 hours), tests a calibrated RBF-kernel SVM (e1071/libsvm) as ensemble
+diversity -- a genuinely new function class never tried in this project.
+Independently re-verified from raw cached prediction matrices before
+logging; fold-construction code read directly and confirmed leakage-free
+(outer-fold exclusion and the nested inner hyperparameter search both scoped
+correctly).
+
+**Rejected, and not competitive even as a weak diversity source.** Canonical
+CV gain -0.000168231, 95% CI [-0.000443,+0.000105] -- correctly not
+escalated (neither a pass nor a near miss). Component alone: 1.166470 CV,
+weaker than every other diversity member tried (xgboost 1.178668, shallow
+MLP 1.190543) -- but unlike those two, blending it in makes the ensemble
+*worse*. Closes the "different function class" diversity question: being
+different isn't sufficient by itself -- xgboost and the MLP each still add
+real, confirmed diversity despite being individually weak; the SVM does not.
+
+**Unrelated process note.** An iCloud Drive sync conflict briefly renamed
+`AGENTS.md`/`submissions_log.csv` to `AGENTS 2.md`/`submissions_log 2.csv`
+in the local working directory during this round -- git itself was
+unaffected (both confirmed byte-identical to the last commit before being
+restored). A few empty, oddly-named stray directories were also found
+nearby and left in place (harmless, not touched without being asked).
+
+**No submission made; no change to the standing best.**
+`mlp_ensemble_v12_candidate` (1.143789 CV / 1.201 public) remains the
+recommendation.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),

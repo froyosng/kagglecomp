@@ -2521,3 +2521,45 @@ consistent with, not an exception to, this project's established finding
 that small positive point estimates at this respondent count routinely fail
 to survive more rigorous re-measurement. **No submission made; no change to
 the standing best.**
+
+## 2026-07-30: a calibrated SVM as ensemble diversity -- a new function class, still not competitive
+
+The fourth new script from the same wave, run live by the user in RStudio
+(~4 hours: nested inner-CV hyperparameter search plus a fresh RBF-SVM fit per
+outer fold), tests a genuinely new function class for ensemble diversity --
+a calibrated radial-basis-function support vector machine (e1071/libsvm),
+never tried anywhere in this project's tree-based/neural/linear model
+history. Independently re-verified from the raw cached prediction matrices
+before logging (log loss and per-respondent gain recomputed directly, not
+from the summary CSV; bootstrap rerun with a fresh seed) and the
+fold-construction code read directly to confirm outer-fold exclusion and the
+nested inner search are both leakage-free.
+
+**Result: rejected, and not competitive even as a weak diversity source.**
+Canonical CV gain -0.000168231, 95% CI [-0.000443,+0.000105], correctly not
+escalated to repeated CV since this was neither a pass nor a pre-registered
+near miss. The SVM component alone scores 1.166470 CV -- weaker than every
+other diversity member tried (xgboost 1.178668, shallow MLP 1.190543), but
+unlike those two, blending it in makes the ensemble *worse*, not better.
+This closes the "try a genuinely different function class for diversity"
+question with a clean answer: being a different kind of model isn't
+sufficient by itself -- xgboost and the shallow MLP each still contribute
+real, confirmed diversity despite being individually weak; the SVM, also
+individually weak, does not.
+
+**A process note, unrelated to the modelling result.** While this was
+running, an unrelated iCloud Drive sync-conflict briefly renamed `AGENTS.md`
+and `submissions_log.csv` to `AGENTS 2.md`/`submissions_log 2.csv` in the
+local working directory (git itself was unaffected -- both were confirmed
+byte-identical to the last commit before being restored and the duplicates
+removed). A few empty, oddly-named directories (`54/`, `a2/`, `pcs/`,
+`viewer_history/`, and stray root-level `codex_choice_set_geometry`/
+`codex_componentwise_boost`/`codex_price_curve_shrinkage`/`codex_svm_diversity`
+folders, distinct from their correctly-populated counterparts under
+`data_processed/`) were also found nearby, empty and harmless, likely the
+same sync-conflict mechanism; left in place rather than deleted without
+being asked, since removing them isn't necessary for anything in this log.
+
+**No submission made; no change to the standing best.**
+`mlp_ensemble_v12_candidate` (1.143789 CV / 1.201 public) remains the
+recommendation.
