@@ -1,0 +1,92 @@
+# ==================================================================================
+# MIXED LOGIT — GROUPED 5-FOLD CV (honest, comparable to your other OOF numbers)
+# ==================================================================================
+# Assumes `train` (the MNL-pipeline dataframe) and `choice` already exist from
+# your earlier Part 1/2/3 pipeline, and that compute_logloss() is already defined.
+
+set.seed(12)
+k <- 5
+case_ids <- unique(train$Case)
+case_assignment <- sample(rep(1:k, length.out = length(case_ids)))
+case_folds <- split(seq_along(case_ids), case_assignment)
+folds <- lapply(case_folds, function(idx) which(train$Case %in% case_ids[idx]))
+
+oof_preds_mixed <- matrix(NA, nrow = nrow(train), ncol = 4)
+
+mixed_formula <- Choice~AF1+AF2+BU1+BU2+BU3+BU4+BU5+BZ1+BZ2+BZ3+CC1+CC2+CC3+
+    FA1+FC1+FP1+FP2+FP3+HU1+KA1+KA2+LB3+LD1+LD2+MA1+MA3+NS1+
+    NS4+NV1+NV2+PP1+PP2+RP1+SC1+SC2+SC3+TS1+TS2+Price2+Price3+
+    Price4+Price5+Price6+Price7+Price8+Price9+Price10+Price11+Price12-1
+
+for (i in 1:k) {
+  train_idx <- unlist(folds[-i])
+  val_idx   <- folds[[i]]
+
+  fold_train <- train[train_idx, ]
+  fold_val   <- train[val_idx, ]
+
+  S_fold_train <- dfidx(fold_train, shape = "wide", choice = "Choice", sep = ".",
+                         varying = c(8:291),
+                         idx = list(c("No", "Case")), idnames = c(NA, "alt"))
+  S_fold_val   <- dfidx(fold_val, shape = "wide", choice = "Choice", sep = ".",
+                         varying = c(8:291),
+                         idx = list(c("No", "Case")), idnames = c(NA, "alt"))
+
+  fold_model <- mlogit(
+    mixed_formula,
+    data = S_fold_train,
+    panel = TRUE,
+    rpar = c(Price2 = "n", Price3 = "n", Price4 = "n"),
+    R = 100,
+    halton = NA,
+    method = "bhhh"
+  )
+
+  fold_preds <- predict(fold_model, newdata = S_fold_val)
+  oof_preds_mixed[val_idx, ] <- as.matrix(fold_preds)
+
+  fold_logloss <- compute_logloss(as.data.frame(fold_preds), choice[val_idx, ])
+  cat("Mixed Logit Fold", i, "Validation Log Loss:", fold_logloss, "\n")
+}
+
+stopifnot(all(!is.na(oof_preds_mixed)))
+preds_train_MIXED <- as.data.frame(oof_preds_mixed)
+colnames(preds_train_MIXED) <- c("Ch1","Ch2","Ch3","Ch4")
+preds_train_MIXED$No <- train$No
+
+overall_oof_logloss_mixed <- compute_logloss(preds_train_MIXED[, c("Ch1","Ch2","Ch3","Ch4")], choice)
+cat("Mixed Logit overall out-of-fold log loss:", overall_oof_logloss_mixed, "\n")
+
+write.csv(preds_train_MIXED, "TrainingTheEnsemble_MIXED.csv", row.names = FALSE)
+
+# THEN fit final mixed logit on ALL training data for the actual submission
+S_everything <- dfidx(train, shape="wide", choice="Choice", sep=".",
+                      varying = c(8:291),
+                      idx = list(c("No", "Case")), idnames = c(NA, "alt"))
+
+final_mixed_model <- mlogit(
+  mixed_formula,
+  data = S_everything,
+  panel = TRUE,
+  rpar = c(Price2 = "n", Price3 = "n", Price4 = "n"),
+  R = 100,
+  halton = NA,
+  method = "bhhh"
+)
+
+# SUBMISSION PREDICTIONS
+S_test <- dfidx(test, shape="wide", choice="Choice", sep=".",
+                varying = c(8:291),
+                idx = list(c("No", "Case")), idnames = c(NA, "alt"))
+
+mixed_test_preds <- predict(final_mixed_model, newdata = S_test)
+mixed_test_preds <- as.data.frame(mixed_test_preds)
+colnames(mixed_test_preds) <- c("Ch1","Ch2","Ch3","Ch4")
+
+submission_prediction_MIXED <- subset(test_raw, select=c(No))
+submission_prediction_MIXED$Ch1 <- mixed_test_preds$Ch1
+submission_prediction_MIXED$Ch2 <- mixed_test_preds$Ch2
+submission_prediction_MIXED$Ch3 <- mixed_test_preds$Ch3
+submission_prediction_MIXED$Ch4 <- mixed_test_preds$Ch4
+
+write.csv(submission_prediction_MIXED, "InputEnsemble_MIXED.csv", row.names = FALSE)
