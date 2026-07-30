@@ -2563,3 +2563,65 @@ being asked, since removing them isn't necessary for anything in this log.
 **No submission made; no change to the standing best.**
 `mlp_ensemble_v12_candidate` (1.143789 CV / 1.201 public) remains the
 recommendation.
+
+## 2026-07-30: a set-context network becomes the new best model -- CV-predicted improvement confirmed on the public leaderboard a second time
+
+The set-context network mentioned above (a feed-forward architecture where
+each alternative's features include permutation-invariant summaries of the
+*other* alternatives in its own task -- the same choice-set-context idea
+behind the earlier price-rank/gap terms and the choice-set-geometry
+experiment, but learned end-to-end rather than hand-built) finished its
+repeated-CV escalation with a materially different outcome than every other
+near-miss this session: the pooled signal across 6 fold-seed assignments
+came in **stronger**, not weaker, than the canonical split suggested.
+
+**Repeated CV**: pooled gain +0.0011636, ordinary 95% respondent-bootstrap CI
+**[+0.0000106, +0.0023180] -- excludes zero**, win rate 97.6%, and every one
+of the 6 individual repeat seeds was positive (0.00015 to 0.0017 each) --
+consistent, not a lucky average of mixed signs. The margin is thin (it does
+not survive a 99% CI, which crosses zero) -- but that is exactly the same
+standard the original MLP candidate was promoted under, not a new, looser
+bar invented for this candidate.
+
+Before recommending a submission, the full-data build was produced by a
+script (`R/codex_set_context_candidate_submission.R`) with real, enforced
+safeguards, not just claimed ones: it hard-locks the runner code and the
+baseline submission file to specific MD5 hashes (refusing to run against
+anything else), hard-checks that the actual saved repeated-CV verdict really
+says `promote=TRUE` with `lower_95>0` before proceeding, freezes the blend
+weight as the mean of the six repeats' own cross-fitted fold weights
+(11.1%), and -- most importantly -- **requires the full three-seed network to
+be trained twice independently and refuses to write a candidate CSV unless
+the two runs agree to within 1e-6**. Both runs agreed exactly (difference
+0.0 on both the component and the final blended prediction).
+
+Independently re-verified before recommending submission, not taken on
+trust: recomputed log loss and per-respondent gain directly from the raw
+canonical and repeated-CV result files; read the fold-construction code and
+confirmed the identical leakage-safety pattern used everywhere else in this
+project (hard assertion of zero respondent overlap between fitting and
+validation, scalers fit strictly on training-fold data); independently
+recomputed every full-data-build audit statistic (max probability change,
+argmax-flip rate, correlation with the existing submission, mean absolute
+change) directly from the actual submission file and the actual
+publicly-scored baseline file -- every number matched the build script's own
+report exactly, including the submission file's MD5.
+
+**Public result: 1.200**, beating the prior best (1.201). This is the
+**second** time this project's CV-predicted improvement direction has been
+confirmed on the real public leaderboard (the first was the original MLP
+candidate) -- meaningful because it means the respondent-grouped CV
+methodology this whole project has been built around is not just internally
+consistent, it is actually tracking something real about the public split
+too, twice now. The CV-to-public gap (0.056467) sits squarely inside the
+established 0.052-0.057 ensemble-class pattern, in sharp contrast to the two
+flexible-model submissions that broke that pattern and scored worse than
+predicted (`mlogit_m8trpg_standalone`, gap 0.065979; `triple_mlp_v13`, gap
+0.066700) -- a third, independent data point for the same conclusion:
+well-behaved, ensemble-class refinements transfer more reliably to the
+public split than additions with unbounded or high-variance structure.
+
+**`set_context_utility_network_v14` is now the recommended model**
+(1.143533 CV / 1.200 public), replacing `mlp_ensemble_v12_candidate`
+(1.143789 CV / 1.201 public), which is retained as the prior-best fallback
+reference, not deleted from consideration.

@@ -130,7 +130,8 @@ CV = 5-fold respondent-grouped, seed 4821, pooled. Val = single 80/20 split, see
 | ensemble_v10: 0.75 m8trp + 0.25 xgboost | -- | 1.148 | -- | not submitted (superseded before a slot was used) |
 | **mlogit_m8trpg: m8trp + price_gap_min/max (distance to cheapest/dearest, not just rank)** | 1.160 | **1.147** | -- | biggest single incremental gain of the session, from just 2 params |
 | ensemble_v11: 0.80 m8trpg + 0.20 xgboost | -- | 1.145 | 1.202 | best model 2026-07-26/27; gap 0.057. Superseded 2026-07-28 |
-| **ensemble_v11 + 0.15 MLP (nnet, 8 hidden units, 5 seeds)** | -- | **1.1438** | **1.201** | **CURRENT BEST**, both CV and public. First non-tree ensemble member; gap 0.0572, in line with the established pattern |
+| ensemble_v11 + 0.15 MLP (nnet, 8 hidden units, 5 seeds) | -- | 1.1438 | 1.201 | best model 2026-07-28/29/30; gap 0.0572. First non-tree ensemble member. Superseded 2026-07-30 |
+| **0.889 x (ensemble_v11+MLP) + 0.111 x set-context network** | -- | **1.1435** | **1.200** | **CURRENT BEST** (`set_context_utility_network_v14`), both CV and public. First learned choice-set-context component; gap 0.0565, in line with the established pattern |
 
 Negative/null results (all real attempts, logged for the report's "alternatives
 tried" section, not dead ends to re-try):
@@ -324,7 +325,7 @@ open question**: no further lever has cleared the bar, and the 1.187 score
 specifically should not be treated as evidence of a missing modeling
 breakthrough.
 
-## Known weakness: CV-to-public gap, and what actually drives it (updated 2026-07-29)
+## Known weakness: CV-to-public gap, and what actually drives it (updated 2026-07-30)
 | Model | CV/Val | Public | Gap |
 |---|---|---|---|
 | mod1 | 1.236 | 1.270 | 0.034 |
@@ -332,8 +333,9 @@ breakthrough.
 | ensemble_v9 | 1.152 | 1.204 | 0.052 |
 | ensemble_v11 (mlogit+xgboost blend) | 1.145 | 1.202 | 0.057 |
 | mlogit_m8trpg standalone (no xgboost) | 1.147 | 1.213 | 0.066 |
-| ensemble_v11 + MLP (current best) | 1.1438 | 1.201 | 0.0572 |
-| triple_mlp_v13 (triple-interaction+xgb+MLP) | 1.1433 | 1.210 | **0.0667 (largest)** |
+| ensemble_v11 + MLP | 1.1438 | 1.201 | 0.0572 |
+| triple_mlp_v13 (triple-interaction+xgb+MLP) | 1.1433 | 1.210 | 0.0667 (largest) |
+| set_context_utility_network_v14 (current best) | 1.1435 | 1.200 | 0.0565 |
 
 The MLP candidate's gap (0.0572) sits right in line with ensemble_v9/v11's
 0.052-0.057 range -- another ensemble-class model, another similar gap, no
@@ -377,6 +379,25 @@ extra flexible structure generalizing worse publicly than its CV number
 alone predicted, while the plainer ensemble continues to hold the best
 public score** -- concrete evidence for the report's "why the ensemble
 should be retained" argument, not just a repeated assertion of it.
+
+**2026-07-30 update -- `set_context_utility_network_v14` submitted,
+CV-predicted direction confirmed a second time.** A set-context feed-forward
+network (permutation-invariant summaries of the other alternatives in each
+task, learned end-to-end) cleared repeated CV's ordinary 95% bootstrap bar
+(pooled gain +0.0011636, CI [+0.0000106,+0.0023180], 6/6 repeats positive)
+after a wide, unconfident canonical-split near-miss -- the reverse of this
+session's usual near-miss-shrinks-under-repeated-CV pattern. Submitted after
+a full-data build enforced by a two-independent-run reproducibility gate
+(0.0 difference between runs). Result: public **1.200**, beating the prior
+best (1.201) -- the SECOND time this project's CV-predicted improvement
+direction has been confirmed on the public leaderboard (the first was the
+original MLP candidate). Gap (0.056467) sits squarely inside the established
+ensemble-class 0.052-0.057 pattern, in sharp contrast to the two flexible
+submissions that broke it (m8trpg-alone 0.066, triple_mlp_v13 0.0667) -- a
+third independent data point for the same conclusion: well-behaved,
+ensemble-class refinements transfer more reliably than additions with
+unbounded/high-variance structure. `set_context_utility_network_v14`
+(1.143533 CV / 1.200 public) is now the current best model.
 
 ## Resolved: Codex modeling push (2026-07-27) -- 4-way ensemble candidate, not adopted
 Asked Codex (a separate coding agent, working in isolation on branch
@@ -1041,6 +1062,57 @@ nearby and left in place (harmless, not touched without being asked).
 `mlp_ensemble_v12_candidate` (1.143789 CV / 1.201 public) remains the
 recommendation.
 
+## Resolved: set-context network becomes the new best model -- CV-predicted improvement confirmed a second time (2026-07-30)
+A feed-forward network where each alternative's features include
+permutation-invariant summaries of the *other* alternatives in its own
+choice task (the same choice-set-context idea behind the price-rank/gap
+terms and the choice-set-geometry experiment, but learned end-to-end
+instead of hand-built). Canonical single-split CV was a wide, unconfident
+near miss (gain +0.000153, win rate only 63.8%), auto-escalating per its
+pre-registered rule to 6-seed repeated CV -- where, unlike every other
+near-miss this session, the pooled signal came in **stronger**, not weaker:
+pooled gain +0.0011636, ordinary 95% bootstrap CI **[+0.0000106,
++0.0023180] -- excludes zero**, win rate 97.6%, all 6 individual repeat
+seeds positive (0.00015-0.0017 each). The margin is thin -- it does not
+survive a 99% CI -- but that is the identical standard the original MLP
+candidate was promoted under, not a new exception. Component alone is weak
+(1.261810 CV), the same individually-weak-but-genuinely-diverse pattern as
+xgboost and the shallow MLP. Frozen blend weight: 11.1% (mean of the six
+repeats' cross-fitted fold weights).
+
+Before recommending submission, the full-data build (`R/codex_set_context_
+candidate_submission.R`) enforced real, checkable safeguards rather than
+asserted ones: MD5-locks the runner code and the actual publicly-scored
+baseline submission (refuses to run against anything else); hard-checks the
+saved repeated-CV verdict genuinely says `promote=TRUE`/`lower_95>0` before
+proceeding; and requires the full 3-seed network to be trained twice
+independently, refusing to write a candidate CSV unless the two runs agree
+to within 1e-6 -- they agreed exactly (difference 0.0 on both the component
+and the final blend). Independently re-verified rather than trusted:
+recomputed log loss and per-respondent gain directly from the raw
+canonical/repeated-CV result files; read the fold-construction code and
+confirmed the same leakage-safety pattern used throughout this project
+(hard assertion of zero respondent overlap between fitting and validation,
+scalers fit strictly on training-fold data); independently recomputed every
+full-data-build audit statistic (max change, argmax-flip rate, correlation,
+mean absolute change) directly from the actual submission and baseline
+files, and confirmed the submission's MD5 on disk -- everything matched the
+build script's own report exactly.
+
+**Public result: 1.200**, beating the prior best (1.201). This is the
+**second** time this project's CV-predicted improvement direction has been
+confirmed on the real public leaderboard (the first was the original MLP
+candidate) -- real evidence the respondent-grouped CV methodology tracks
+something genuine about the public split, not just internal consistency.
+Gap to CV (0.056467) sits squarely inside the established 0.052-0.057
+ensemble-class pattern, unlike the two flexible-model submissions that broke
+it (m8trpg-alone 0.065979, triple_mlp_v13 0.066700) -- a third independent
+data point for the same conclusion.
+
+**`set_context_utility_network_v14` (1.143533 CV / 1.200 public) is now the
+current best model**, replacing `mlp_ensemble_v12_candidate` (1.143789 CV /
+1.201 public), which is retained as the prior-best fallback reference.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
@@ -1095,50 +1167,51 @@ recommendation.
   scripts and write-up are kept for reproducibility.
 
 ## Next steps
-1. `competition_report.qmd` has been updated to reflect the new best model
-   (`ensemble_v11 + MLP`, public 1.201) as the headline result, plus the
-   extensive post-ensemble_v11 negative-result campaign and the confirmed
-   299-version structural finding; `references.bib` updated to match. Still
-   needs a PDF render (no Quarto/TeX in this environment -- use RStudio/
-   Positron's bundled Quarto, or install Quarto+TinyTeX here), a page-count
-   check against the 8-page limit, and a final wording/layout pass.
-2. `submission_triple_mlp_v13.csv` was submitted 2026-07-29: public **1.210**,
-   worse than the current best (1.201) and outside the paired simulation's
-   predicted range -- see "Untested candidate" section above (now resolved)
-   and the 2026-07-29 cleaning-log entry. No submission slots currently have
-   a queued candidate; only 2 Kaggle submissions/day (shared team-wide), so
-   don't spend one without a CI that clearly excludes zero. Clarence's model
-   still needs a fixed validation split before it's worth trusting or
-   submitting.
-3. As of 2026-07-29, no untested candidate anywhere in the project has a
-   respondent-bootstrap CI that cleanly excludes zero against the current
-   best (1.143789 CV / 1.201 public) -- the eight-component blend failed
-   under repeated CV, `triple_mlp_v13` (the last remaining honest bet) has
-   now also been submitted and came back worse, the price-only isolation of
-   the design-history lead failed its family-adjusted bound, and the
-   shared-alternative-utility MLP (a genuinely new function-class x
-   constraint combination) screened well but failed canonical CV by 8x (see
-   the two "Resolved" sections above). The search is genuinely exhausted,
-   not merely paused: closing the ~0.015 gap to public 1.186 would need
-   roughly 10x any single improvement found anywhere in this session's
-   search, and the two real submitted data points comparing a flexible-
-   structure model against the plainer ensemble (m8trpg-alone: 1.213 public;
-   triple_mlp_v13: 1.210 public) both favor the ensemble currently in
-   production. **Recommendation: stop searching for a bigger model gain and
-   treat `mlp_ensemble_v12_candidate` as the final submission**, redirecting
-   remaining effort to the report (rendering, page-count, and the write-up
-   of this exhaustive search as a genuine strength). If a fundamentally
-   different structural idea surfaces, it's still worth testing -- but
-   exhaust it via CV before assuming it's a real gain, and the bar for
-   spending a submission slot remains: the respondent-bootstrap CI must
-   clearly exclude zero, not just have a positive point estimate. One
-   specific, not-yet-attempted structural idea remains on the table if
-   someone wants to keep pushing: a version-level correction that lets each
-   questionnaire version borrow strength from *other*, similar versions (a
-   genuinely different mechanism from both the already-rejected
-   per-version-isolated Newton correction and the already-tested
-   single-global-population history prior) -- not yet scoped in detail or
-   implemented, and its theoretical motivation is weaker than either closed
-   lead's was (versions are arbitrary fixed designs from the same pool, not
-   obviously related to each other in a way that should make one version's
-   opt-out utility informative about another's).
+1. **`competition_report.qmd` needs another headline update**: best model is
+   now `set_context_utility_network_v14` (1.143533 CV / 1.200 public),
+   superseding the `ensemble_v11 + MLP` writeup from 2026-07-29. Needs: the
+   new formula/weight (0.889 x prior best + 0.111 x set-context network), a
+   description of the set-context architecture, the repeated-CV-strengthens-
+   not-weakens result (unusual, worth highlighting), the full-data build's
+   two-run reproducibility gate, and the updated CV-to-public gap table/
+   discussion (this is now the SECOND CV-predicted-direction confirmation on
+   the public LB, strengthening that argument). Re-render to PDF (Quarto +
+   TinyTeX now installed in this environment from the prior render -- see
+   `quarto render competition_report.qmd --to pdf` with the RStudio-bundled
+   quarto on PATH) and recheck the 8-page limit after the addition.
+2. `submission_triple_mlp_v13.csv` (2026-07-29, public 1.210, worse) and
+   `submission_set_context_v14_candidate.csv` (2026-07-30, public **1.200**,
+   new best) are both logged. No other submission slot currently has a
+   queued candidate; only 2 Kaggle submissions/day (shared team-wide) -- keep
+   requiring a CI that clearly excludes zero before spending one. Clarence's
+   model still needs a fixed validation split before it's worth trusting.
+3. **An external review (2026-07-30) proposed "test a genuinely new
+   structural model: panel mixed logit or latent-class logit" as a next
+   step -- this is NOT new.** Both have been tried multiple times and
+   rejected: frequentist mixed logit (full and price-only), a Bayesian
+   hierarchical mixed logit (deliberately re-tested under a totally
+   different estimation philosophy specifically to rule out an estimation
+   artifact -- same rejection), latent-class logit (twice), and a
+   price-scale latent class (real, stable classes, but redundant with
+   existing continuous heterogeneity). Do not re-run any of these without a
+   materially different angle; if someone proposes this again, point them
+   at this file's "Model progression" negative-results list and the
+   Bayesian-mixed-logit "Resolved" section first.
+4. The same review's other suggestion -- an OOF residual-correlation check
+   to test whether different models fail on the same rows (representation
+   limitation) vs. different rows (exploitable complementary signal) -- was
+   run directly (own analysis, not delegated): m8trpg's worst-decile rows
+   are also dramatically worse than average for every other cached model
+   (e.g. xgboost 1.18 overall vs. 2.17 on those rows; MLP 1.19 vs. 2.44).
+   Real evidence for a shared, not per-model, error ceiling -- consistent
+   with the project's broader "near the practical floor" conclusion.
+5. As of 2026-07-30, no untested candidate has a respondent-bootstrap CI
+   that cleanly excludes zero against the NEW current best
+   (`set_context_utility_network_v14`) -- everything logged so far was
+   measured against the prior best. The four-parallel-experiment wave, the
+   three-more-experiments wave, and the SVM-diversity result were all
+   measured before this promotion and should be considered closed regardless
+   (their rejections don't depend on which model is "current best" by this
+   small a margin). If a genuinely new idea surfaces, exhaust it via
+   respondent-grouped CV before assuming it's real, and keep the same bar:
+   ordinary 95% CI must exclude zero, not just a positive point estimate.
