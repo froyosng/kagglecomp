@@ -1113,6 +1113,45 @@ data point for the same conclusion.
 current best model**, replacing `mlp_ensemble_v12_candidate` (1.143789 CV /
 1.201 public), which is retained as the prior-best fallback reference.
 
+## Resolved: sequence-transformer rescue closes definitively; four more experiments rejected (2026-07-31)
+The set-pooling correction network's canonical near-miss showed every
+seed/fold converging to a near-zero correction (~1e-6 vs a 0.35 bound) --
+strong evidence two stacked regularizers (`weight_decay=0.002`,
+`correction_penalty=0.01`) were pinning it at zero-init. A rescue suite
+swept 6 configs across init scale and regularization strength to test this.
+Its smoke test first caught a real bug (fixed): the checkpoint-reload path
+re-normalizes via `validate_probability()` while the fresh-fit path
+doesn't, so a harmless floating-point artifact was failing an `identical()`
+check that should have used the same 1e-6 tolerance as every other
+reproducibility gate here. Fixed, verified (cleared the stale checkpoint,
+reran, passed cleanly with a real ~1000x larger correction on the
+regularizer-free capacity check).
+
+The full run then completed in **under 15 minutes**, not the ~4.5-5 hour
+worst case, with a cleaner reject than before: the fold-1 screen found a
+stark dichotomy -- the 3 configs with regularizers relaxed enough to move
+the correction substantially (RMS ~0.33) all showed it **hurting**
+predictions (-0.035 to -0.057 vs the frozen offset); the 3 that stayed
+regularized were harmless no-ops. No config was both non-trivial and
+helpful, so all six were correctly rejected on fold 1 alone without
+touching folds 2-5 -- discipline saving most of a night's compute once the
+evidence was unambiguous. Closes this direction for good: relaxing the
+regularizers reveals overfitting, not hidden signal.
+
+Four more experiments independently verified and logged: a low-rank
+demographic-partworth factorization (near-miss that reverses sign under
+repeated CV); a two-head opt-out/bundle ensemble (closest near-miss of the
+wave, 89.6% win rate, independently reconstructed and confirmed genuine,
+still crosses zero); a "safe" gated diversity recombination (crosses zero,
+75% weight stuck on v14 itself); and an OOF residual audit (diagnostic, not
+a candidate) finding neither the opt-out nor bundle head of the two-head
+model satisfies its own promotion rule -- concluding "STOP MODEL SEARCH...
+redirect effort to the final report" independently.
+
+**No submission made; no change to the standing best.**
+`set_context_utility_network_v14` (1.143533 CV / 1.200 public) remains
+final, now with an even more exhaustively closed search behind it.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),

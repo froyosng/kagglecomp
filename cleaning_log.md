@@ -2625,3 +2625,56 @@ public split than additions with unbounded or high-variance structure.
 (1.143533 CV / 1.200 public), replacing `mlp_ensemble_v12_candidate`
 (1.143789 CV / 1.201 public), which is retained as the prior-best fallback
 reference, not deleted from consideration.
+
+## 2026-07-31: the sequence-transformer rescue closes definitively, plus four more rejected experiments
+
+The set-pooling correction network on top of `set_context_v14` (Section
+above) had shown a canonical near-miss but with every seed/fold converging
+to a numerically-near-zero correction -- strong evidence the correction was
+pinned at its zero-initialization by two stacked regularizers
+(`weight_decay=0.002`, `correction_penalty=0.01`) rather than reflecting a
+genuinely tiny real effect. A rescue suite was built to test this directly
+by sweeping 6 configurations across initialization scale and regularization
+strength. Its own smoke test initially failed on a real bug (not a model
+problem): the checkpoint-reload path re-normalizes the loaded prediction via
+`validate_probability()` while the fresh-fit path does not, so a harmless
+floating-point renormalization artifact was failing an `identical()` check
+that should have used a tolerance instead, exactly like every other
+reproducibility gate in this project. Fixed (switched to a 1e-6 tolerance),
+verified by clearing the stale checkpoint and re-running -- passed cleanly,
+with the capacity-control diagnostic showing a real, ~1000x larger
+correction once regularizers were removed on a tiny subset.
+
+The full run then completed in **under 15 minutes** (not the ~4.5-5 hour
+worst case) with a clean, more decisive reject than the original near-miss:
+the fold-1 screen found a stark dichotomy, not a spectrum. The three
+configurations with regularizers relaxed enough to move the correction
+substantially (RMS ~0.33, near the saturation bound) all showed the
+correction actively **hurting** predictions (component gain -0.035 to
+-0.057 versus the frozen offset alone). The three that stayed properly
+regularized were harmless no-ops. No configuration was both non-trivial and
+helpful, so the pre-registered screen-then-freeze rule correctly rejected
+all six without ever touching folds 2-5 or escalating to repeated CV --
+the fold-1 evidence was already unambiguous, so the discipline saved most of
+a night's compute rather than spending it confirming a foregone conclusion.
+This closes the set-pooling/sequence-transformer direction for good: the
+"stuck at zero" diagnosis was correct, but relaxing it reveals overfitting,
+not hidden signal.
+
+Four more experiments from the same wave were also independently verified
+and logged: a low-rank demographic-partworth factorization (near-miss that
+**reverses sign** under repeated CV, 1/6 positive repeats); a two-head
+opt-out/bundle ensemble (the closest near-miss of the wave -- 6/6 positive
+repeats, 89.6% win rate -- independently reconstructed from raw data and
+confirmed genuine, but still crosses zero); a "safe" gated diversity
+recombination (crosses zero, dominated by 75% weight on v14 itself); and an
+OOF residual audit (a diagnostic, not a candidate) that decomposed the
+two-head result by choice component and found neither the opt-out nor
+bundle head satisfies its own pre-registered promotion rule, concluding
+"STOP MODEL SEARCH... redirect effort to the final report" -- an
+independently-run diagnostic reaching the same conclusion as this project's
+entire accumulated search history, via yet another angle.
+
+**No submission made; no change to the standing best.**
+`set_context_utility_network_v14` (1.143533 CV / 1.200 public) remains the
+final model, now with an even more thoroughly exhausted search behind it.
