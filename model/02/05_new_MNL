@@ -1,3 +1,130 @@
+library(mlogit)
+library(caret)
+
+# METRIC FUNCTION
+compute_logloss <- function(P, choice){
+    logloss <- 0
+    for (i in 1:(nrow(choice))) {
+        logloss <- logloss + choice$Ch1[i]*log(P[i,1]) + choice$Ch2[i]*log(P[i,2]) + choice$Ch3[i]*log(P[i,3]) + choice$Ch4[i]*log(P[i,4])
+    }
+    logloss <- logloss / nrow(choice)
+    logloss <- -1 * logloss
+    return(logloss)
+}
+
+# DATA EXTRACTION
+train_raw <- read.csv("train.csv")
+test_raw <- read.csv("test.csv")
+train_raw$Choice <- ifelse(train_raw$Ch1 == 1, 1, ifelse(train_raw$Ch2 == 1, 2, ifelse(train_raw$Ch3 == 1, 3, 4)))
+test_raw$Choice <- sample(c(1, 2, 3, 4), nrow(test_raw), replace = TRUE, prob = c(0.25, 0.25, 0.25, 0.25))
+
+id_train <- subset(train_raw, select = c(Case, Task, No, Ch1, Ch2, Ch3, Ch4))
+id_test <- subset(test_raw, select = c(Case, Task, No, Ch1, Ch2, Ch3, Ch4))
+
+df_train <- subset(train_raw, select = -c(segment,segmentind,year,yearind,milesa,miles,milesind,nighta,night,
+                                          nightind,ppark,pparkind,gender,genderind,age,ageind,agea,educ,
+                                          educind,region,regionind,Urb,Urbind,income,incomeind,incomea,
+                                          Ch1,Ch2,Ch3,Ch4))
+df_test <- subset(test_raw, select = -c(segment,segmentind,year,yearind,milesa,miles,milesind,nighta,night,
+                                        nightind,ppark,pparkind,gender,genderind,age,ageind,agea,educ,
+                                        educind,region,regionind,Urb,Urbind,income,incomeind,incomea,
+                                        Ch1,Ch2,Ch3,Ch4))
+
+car_features <- c('CC1','GN1','NS1','BU1','FA1','LD1','BZ1','FC1','FP1','RP1','PP1','KA1','SC1','TS1','NV1','MA1','LB1','AF1','HU1','Price1',
+                  'CC2','GN2','NS2','BU2','FA2','LD2','BZ2','FC2','FP2','RP2','PP2','KA2','SC2','TS2','NV2','MA2','LB2','AF2','HU2','Price2',
+                  'CC3','GN3','NS3','BU3','FA3','LD3','BZ3','FC3','FP3','RP3','PP3','KA3','SC3','TS3','NV3','MA3','LB3','AF3','HU3','Price3',
+                  'CC4','GN4','NS4','BU4','FA4','LD4','BZ4','FC4','FP4','RP4','PP4','KA4','SC4','TS4','NV4','MA4','LB4','AF4','HU4','Price4')
+for (car_feature in car_features){
+    df_train[, car_feature] <- factor(df_train[, car_feature])
+    df_test[, car_feature] <- factor(df_test[, car_feature])
+}
+
+for (car_feature in car_features) {
+    if (length(unique(df_train[, car_feature])) <= 1) {
+        df_train[, car_feature] <- NULL
+        df_test[, car_feature] <- NULL
+    }
+}
+
+dummy <- dummyVars(" ~ .", data = df_train)
+train_data <- data.frame(predict(dummy, newdata = df_train))
+test_data <- data.frame(predict(dummy, newdata = df_test))
+
+swap_xy <- function(col_name) {
+    sub("([A-Za-z]+)([0-9]+)\\.([0-9]+)", "\\1\\3.\\2", col_name)
+}
+
+train_data_tochange <- subset(train_data,select = -c(Choice,Case,No,Task))
+colnames(train_data_tochange) <- sapply(colnames(train_data_tochange), swap_xy)
+
+test_data_tochange <- subset(test_data,select = -c(Choice,Case,No,Task))
+colnames(test_data_tochange) <- sapply(colnames(test_data_tochange), swap_xy)
+
+prefix_y <- sub("([A-Za-z]+[0-9]+)\\.[0-9]+", "\\1", colnames(train_data_tochange)[1:91])
+new_colnames <- paste0(prefix_y, ".4")
+
+for (new_col in new_colnames) {
+    train_data_tochange[[new_col]] <- 0
+    test_data_tochange[[new_col]] <- 0
+}
+
+train_features <- subset(train_data_tochange, select = -c(AF0.1, AF0.2, AF0.3, AF0.4,
+                                                          BU0.1, BU0.2, BU0.3, BU0.4,
+                                                          BZ0.1, BZ0.2, BZ0.3, BZ0.4,
+                                                          CC0.1, CC0.2, CC0.3, CC0.4, 
+                                                          FA0.1, FA0.2, FA0.3, FA0.4,
+                                                          FC0.1, FC0.2, FC0.3, FC0.4,
+                                                          FP0.1, FP0.2, FP0.3, FP0.4,
+                                                          GN0.1, GN0.2, GN0.3, GN0.4,
+                                                          HU0.1, HU0.2, HU0.3, HU0.4,
+                                                          KA0.1, KA0.2, KA0.3, KA0.4,
+                                                          LB0.1, LB0.2, LB0.3, LB0.4,
+                                                          LD0.1, LD0.2, LD0.3, LD0.4,
+                                                          MA0.1, MA0.2, MA0.3, MA0.4,
+                                                          NS0.1, NS0.2, NS0.3, NS0.4,
+                                                          NV0.1, NV0.2, NV0.3, NV0.4,
+                                                          PP0.1, PP0.2, PP0.3, PP0.4,
+                                                          RP0.1, RP0.2, RP0.3, RP0.4,
+                                                          SC0.1, SC0.2, SC0.3, SC0.4,
+                                                          TS0.1, TS0.2, TS0.3, TS0.4,
+                                                          Price1.1, Price1.2, Price1.3, Price1.4))
+
+test_features <- subset(test_data_tochange, select = -c(AF0.1, AF0.2, AF0.3, AF0.4,
+                                                        BU0.1, BU0.2, BU0.3, BU0.4,
+                                                        BZ0.1, BZ0.2, BZ0.3, BZ0.4,
+                                                        CC0.1, CC0.2, CC0.3, CC0.4, 
+                                                        FA0.1, FA0.2, FA0.3, FA0.4,
+                                                        FC0.1, FC0.2, FC0.3, FC0.4,
+                                                        FP0.1, FP0.2, FP0.3, FP0.4,
+                                                        GN0.1, GN0.2, GN0.3, GN0.4,
+                                                        HU0.1, HU0.2, HU0.3, HU0.4,
+                                                        KA0.1, KA0.2, KA0.3, KA0.4,
+                                                        LB0.1, LB0.2, LB0.3, LB0.4,
+                                                        LD0.1, LD0.2, LD0.3, LD0.4,
+                                                        MA0.1, MA0.2, MA0.3, MA0.4,
+                                                        NS0.1, NS0.2, NS0.3, NS0.4,
+                                                        NV0.1, NV0.2, NV0.3, NV0.4,
+                                                        PP0.1, PP0.2, PP0.3, PP0.4,
+                                                        RP0.1, RP0.2, RP0.3, RP0.4,
+                                                        SC0.1, SC0.2, SC0.3, SC0.4,
+                                                        TS0.1, TS0.2, TS0.3, TS0.4,
+                                                        Price1.1, Price1.2, Price1.3, Price1.4))
+
+train_features$No <- seq(1, nrow(train_features))
+train <- merge(id_train, train_features, on='No')
+train["Choice"] <- train_data["Choice"]
+
+test_features$No <- seq(21566, 21566+nrow(test_features)-1)
+test <- merge(id_test, test_features, on='No')
+test["Choice"] <- test_data["Choice"]
+
+rm(train_data, train_data_tochange, train_features,
+   test_data, test_data_tochange, test_features,
+   dummy)
+
+choice <- subset(train, select = c(Ch1, Ch2, Ch3, Ch4))
+
+
 # ==================================================================================
 # MIXED LOGIT — GROUPED 5-FOLD CV (honest, comparable to your other OOF numbers)
 # ==================================================================================
