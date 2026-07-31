@@ -1,12 +1,7 @@
 # ==============================================================================
-# 018_final_blend.R
+# 018_final_blend_shifted_grid.R
 # RF + XGBoost + Elastic-Net multinomial logit, blended.
-# Respondent-grouped CV used EVERYWHERE (tuning, OOF blend weights, final
-# reporting) -- verified necessary because train has 1135 respondents x 19
-# tasks each, and test contains 263 COMPLETELY DIFFERENT respondents (zero
-# overlap). Row-based CV lets a model key off a respondent's repeated
-# demographic combination almost like a disguised ID, which inflates CV
-# scores in a way that does not transfer to the leaderboard.
+# Respondent-grouped CV used EVERYWHERE (tuning, OOF blend weights, final reporting)
 # ==============================================================================
 
 library(dplyr)
@@ -26,22 +21,6 @@ sample_sub <- read_csv("../data/sample_submission.csv", show_col_types = FALSE)
 
 # ==============================================================================
 # 2. Preprocessing
-#    - Alternative 4 is a constant, all-zero "opt out / baseline" option in
-#      this dataset (verified: every CC4..Price4 column has exactly 1 unique
-#      value across both train AND test). It carries zero signal as a raw
-#      feature, and worse, any derived feature computed against it (e.g.
-#      Price1/Price4) is either a degenerate constant or a trivial rescaling
-#      of another feature. We drop the alt-4 attribute block entirely rather
-#      than let it leak into feature engineering.
-#    - Several demographic fields are encoded three different ways (text
-#      label / integer index / numeric proxy, e.g. income, incomeind,
-#      incomea). Keeping all three is pure redundancy and inflates the
-#      one-hot dimension for no benefit. We keep exactly one representation
-#      per variable: the numeric "a" proxy when available (continuous,
-#      preserves ordering), otherwise the text label as a factor.
-#    - Ch1..Ch4 are always dropped as features (both train and test), since
-#      test.csv carries these columns as empty placeholders for the target
-#      -- they must never end up in the feature matrix.
 # ==============================================================================
 alt4_cols <- c("CC4","GN4","NS4","BU4","FA4","LD4","BZ4","FC4","FP4","RP4","PP4",
                "KA4","SC4","TS4","NV4","MA4","LB4","AF4","HU4","Price4")
@@ -69,14 +48,10 @@ process_data <- function(df, is_train = TRUE) {
 train_clean <- process_data(train_raw, is_train = TRUE)
 test_clean  <- process_data(test_raw, is_train = FALSE)
 
-# Case is kept temporarily (needed to build grouped folds) but is NEVER used
-# as a model feature -- it's dropped right before building X_mm below.
 case_ids <- train_raw$Case
 
 # ==============================================================================
 # 3. Relational feature engineering (alternatives 1-3 ONLY)
-#    Grounded in choice theory: what matters for utility is how each option
-#    compares to the others on offer, not just its raw attributes.
 # ==============================================================================
 engineer_features <- function(df) {
   df %>% mutate(
@@ -113,9 +88,7 @@ calculate_log_loss <- function(actual_factor, predicted_probs) {
 }
 
 # ==============================================================================
-# 5. Respondent-grouped 5-fold CV (the fold assignment used by EVERY model
-#    below -- tuning, OOF predictions, and blend-weight search all read
-#    this same variable, so the fix applies everywhere at once).
+# 5. Respondent-grouped 5-fold CV
 # ==============================================================================
 set.seed(42)
 unique_cases <- unique(case_ids)
@@ -128,13 +101,11 @@ label_map <- levels(train_clean$Choice)
 y_factor  <- train_clean$Choice
 y_num     <- as.integer(y_factor) - 1
 
-train_model_df <- train_clean %>% select(-Case)  # RF uses the data frame directly
+train_model_df <- train_clean %>% select(-Case)  
 test_model_df  <- test_clean  %>% select(-Case)
 
 # ==============================================================================
-# 6. Build aligned model matrices for XGBoost / glmnet (train+test combined
-#    before encoding so factor levels and columns are guaranteed to match,
-#    and any leftover constant column is dropped safely).
+# 6. Build aligned model matrices for XGBoost / glmnet 
 # ==============================================================================
 X_all <- bind_rows(
   train_model_df %>% select(-Choice) %>% mutate(.split = "train"),
@@ -182,12 +153,12 @@ best_rf <- rf_grid[which.min(rf_grid$cv_log_loss), ]
 print("Best RF params:"); print(best_rf)
 
 # ==============================================================================
-# 8. XGBoost grid search (respondent-grouped CV, via the `folds` argument)
+# 8. XGBoost grid search (SHIFTED GRID FOR HIGHER REGULARIZATION)
 # ==============================================================================
 xgb_grid <- expand.grid(
-  max_depth = c(3, 4, 6),
-  eta = c(0.02, 0.05, 0.1),
-  min_child_weight = c(1, 5, 10),
+  max_depth = c(2, 3, 4),
+  eta = c(0.01, 0.02, 0.03),
+  min_child_weight = c(10, 15, 20),
   subsample = 0.8,
   colsample_bytree = 0.8,
   cv_log_loss = NA,
@@ -206,13 +177,10 @@ for (i in 1:nrow(xgb_grid)) {
     subsample = xgb_grid$subsample[i], colsample_bytree = xgb_grid$colsample_bytree[i]
   )
   cv_res <- xgb.cv(
-    params = params, data = dtrain_full, nrounds = 2000,
+    params = params, data = dtrain_full, nrounds = 3000, # Increased max rounds due to lower eta
     folds = grouped_fold_list, early_stopping_rounds = 50, verbose = 0
   )
-  # xgboost's R API moved `best_iteration` into `cv_res$early_stop$best_iteration`
-  # in recent versions (was top-level `cv_res$best_iteration` in older ones).
-  # Check both, then fall back to deriving it directly from the evaluation
-  # log so this is robust to whichever version is installed.
+  
   best_iter <- cv_res$early_stop$best_iteration
   if (is.null(best_iter)) best_iter <- cv_res$best_iteration
   if (is.null(best_iter) || length(best_iter) == 0) {
@@ -237,9 +205,6 @@ xgb_params_best <- list(
   subsample = best_xgb$subsample, colsample_bytree = best_xgb$colsample_bytree
 )
 
-# Helper: recent xgboost versions already return a proper [nrow, nclass]
-# matrix from predict() for multiclass objectives. Older versions return a
-# flat vector needing a manual byrow reshape. Handle both.
 safe_xgb_predict <- function(model, dmat) {
   pred <- predict(model, dmat)
   if (!is.matrix(pred)) pred <- matrix(pred, ncol = length(label_map), byrow = TRUE)
@@ -248,10 +213,7 @@ safe_xgb_predict <- function(model, dmat) {
 }
 
 # ==============================================================================
-# 9. Elastic-Net multinomial logit (glmnet), alpha tuned by grouped CV too.
-#    A regularized LINEAR model tends to make different mistakes than tree
-#    ensembles, which is exactly what makes it valuable in a blend -- it's
-#    picked for diversity, not because it beats RF/XGB alone.
+# 9. Elastic-Net multinomial logit (glmnet)
 # ==============================================================================
 alpha_grid <- c(0, 0.25, 0.5, 0.75, 1)
 alpha_results <- data.frame(alpha = alpha_grid, cv_log_loss = NA)
@@ -264,7 +226,7 @@ for (a_i in seq_along(alpha_grid)) {
     cv_fit <- cv.glmnet(
       x = X_mm[-val_idx, , drop = FALSE], y = y_factor[-val_idx],
       family = "multinomial", alpha = alpha_grid[a_i], type.measure = "deviance",
-      foldid = as.integer(factor(fold_assignments[-val_idx]))  # renumbered to contiguous 1..k -- glmnet requires all fold labels present
+      foldid = as.integer(factor(fold_assignments[-val_idx]))  
     )
     p <- predict(cv_fit, newx = X_mm[val_idx, , drop = FALSE], s = "lambda.min", type = "response")
     oof_glm_tmp[val_idx, ] <- p[, , 1]
@@ -301,7 +263,7 @@ for (f in 1:5) {
   cv_fit <- cv.glmnet(
     x = X_mm[-val_idx, , drop = FALSE], y = y_factor[-val_idx],
     family = "multinomial", alpha = best_alpha, type.measure = "deviance",
-    foldid = as.integer(factor(fold_assignments[-val_idx]))  # renumbered to contiguous 1..k
+    foldid = as.integer(factor(fold_assignments[-val_idx]))  
   )
   p <- predict(cv_fit, newx = X_mm[val_idx, , drop = FALSE], s = "lambda.min", type = "response")
   oof_glm[val_idx, ] <- p[, , 1]
@@ -314,7 +276,7 @@ print(paste0("OOF XGB alone: ", round(calculate_log_loss(y_factor, oof_xgb), 5))
 print(paste0("OOF GLM alone: ", round(calculate_log_loss(y_factor, oof_glm), 5)))
 
 # ==============================================================================
-# 11. Optimize THREE-way blend weights on a simplex grid (w_rf + w_xgb + w_glm = 1)
+# 11. Optimize THREE-way blend weights on a simplex grid 
 # ==============================================================================
 step <- 0.05
 best_blend <- list(loss = Inf, w_rf = NA, w_xgb = NA, w_glm = NA)
@@ -358,9 +320,9 @@ colnames(final_glm_probs) <- label_map
 final_glm_probs <- final_glm_probs[, label_map]
 
 final_probs <- best_blend$w_rf * final_rf_probs + best_blend$w_xgb * final_xgb_probs + best_blend$w_glm * final_glm_probs
-final_probs <- final_probs / rowSums(final_probs)  # defensive renormalization
+final_probs <- final_probs / rowSums(final_probs)  
 
-submission_018 <- sample_sub %>%
+submission_019 <- sample_sub %>%
   mutate(
     Ch1 = final_probs[, "Alternative_1"],
     Ch2 = final_probs[, "Alternative_2"],
@@ -369,5 +331,5 @@ submission_018 <- sample_sub %>%
   ) %>%
   select(all_of(names(sample_sub)))
 
-write_csv(submission_018, "../results/submission_018_final_blend.csv")
-print("submission_018_final_blend.csv has been generated!")
+write_csv(submission_019, "../results/submission_019_shifted_grid_blend.csv")
+print("submission_019_shifted_grid_blend.csv has been generated!")
