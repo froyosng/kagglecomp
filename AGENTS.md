@@ -1181,6 +1181,16 @@ final, now with an even more exhaustively closed search behind it.
   Her K-means "persona" clustering idea was re-tested as a logit heterogeneity
   axis (see negative results above) -- didn't transfer, but was a legitimate
   idea worth checking.
+- Zeening's second model (`012_rf_xgb_ensemble.R`, RF+XGB ensemble) was
+  reviewed before submission and flagged as likely leakage-inflated -- same
+  pattern as her first model, could not confirm a respondent-grouped split
+  from the pasted code. An independent diagnostic (fixed XGBoost config,
+  row-based vs. grouped 5-fold) confirmed the mechanism is real (~0.134 gap
+  on that config alone). Submitted anyway 2026-07-31: public **1.224** vs.
+  her claimed CV 1.02 -- gap 0.204, larger even than the diagnostic's
+  estimate. Confirms her claimed 1.02 was never real; worse than the
+  project's current best (1.200). See submissions_log.csv
+  (`zeening_rf_xgb_ensemble`) for full detail.
 - Imelda's `mnl+xgb` (branch `imelda`, `notebooks/experiments/ensemble_mnl_xgb.Rmd`)
   submitted 2026-07-28: public **1.255**. Unlike Clarence's/Zeening's, her
   internal validation IS respondent-grouped (20 splits sampling unique `Case`)

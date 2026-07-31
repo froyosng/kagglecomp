@@ -2678,3 +2678,30 @@ entire accumulated search history, via yet another angle.
 **No submission made; no change to the standing best.**
 `set_context_utility_network_v14` (1.143533 CV / 1.200 public) remains the
 final model, now with an even more thoroughly exhausted search behind it.
+
+## 2026-07-31: Zeening's second submission confirms the leakage diagnosis
+
+Teammate Zeening shared a new model (`012_rf_xgb_ensemble.R`, an RF+XGB
+ensemble) reporting an internal CV log loss of 1.02 -- a number that would
+be dramatically better than anything else in this project if real. Reviewed
+before submission: same red flag as her first model (`rf_gridsearch`,
+logged 2026-07-26, public 1.259 vs. claimed CV 1.162) -- the pasted script's
+internal validation split could not be confirmed as respondent-grouped.
+Rather than take the claim on faith, ran an independent diagnostic: a fixed
+XGBoost config compared row-based vs. respondent-grouped 5-fold CV on the
+same raw features. Row-based CV came in ~0.134 better than grouped CV on
+that config alone, confirming the leakage mechanism is real and large on
+this dataset (same mechanism flagged for Zeening's first model and
+Clarence's task-based split) independent of her specific ensemble code.
+
+She submitted anyway (submission slots were available). Result: public
+**1.224**, a gap of 0.204 from her claimed 1.02 -- larger even than the
+diagnostic's estimate, consistent with her real pipeline leaking more than
+the simplified single-config demo, plus ordinary CV-to-public generalization
+gap on top. This is the second time in this project a teammate's
+unrealistically good internal CV number has been flagged as leakage before
+submission and then confirmed by the real public score. Her claimed 1.02
+should never be cited or compared to a respondent-grouped CV number again.
+1.224 is worse than the project's current best (1.200); no change to the
+standing recommendation. Logged in submissions_log.csv as
+`zeening_rf_xgb_ensemble`.
