@@ -1,0 +1,179 @@
+---
+title: "Model families 1-3: MNL, Mixed Logit, Hierarchical Bayes"
+output: html_document
+date: "2026-07-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Experiments with three choice-model families on the same respondent-level
+validation split, scored by log-loss. Same simple `dfidx`/`mlogit` setup as
+`draft.Rmd`.
+
+# Load & prepare
+
+```{r}
+train <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/train.csv")
+test  <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/test.csv")
+
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])   # 1..4
+test$Choice  <- 1L                                             # placeholder
+
+which(colnames(train)=="CC1")    # 4
+which(colnames(train)=="Price4") # 83
+```
+
+# Log-loss helper
+
+```{r}
+log_loss <- function(actual, pred, eps = 1e-15) {
+  actual <- as.matrix(actual); pred <- as.matrix(pred)
+  stopifnot(all(dim(actual) == dim(pred)))
+  pred <- pred / rowSums(pred)
+  pred <- pmin(pmax(pred, eps), 1 - eps)
+  -mean(rowSums(actual * log(pred)))
+}
+
+# turn a 1..4 vector into a one-hot n x 4 matrix
+one_hot <- function(v) {
+  m <- matrix(0, length(v), 4)
+  m[cbind(seq_along(v), v)] <- 1
+  m
+}
+```
+
+# Split: train on Task<=12, validate on Task>12 (class-style)
+
+```{r}
+library(mlogit)
+
+train_fit <- subset(train, Task <= 12)
+train_val <- subset(train, Task > 12)
+
+val_truth <- one_hot(train_val$Choice)
+
+# shared reshape helpers
+S_fit  <- dfidx(train_fit, shape="wide", choice="Choice", sep="",
+                varying = c(4:83), idx = c("No","Case"))
+S_val  <- dfidx(train_val, shape="wide", choice="Choice", sep="",
+                varying = c(4:83), idx = c("No","Case"))
+
+# panel versions (list idx) for mixed logit
+S_fitP <- dfidx(train_fit, shape="wide", choice="Choice", sep="",
+                varying = c(4:83), idx = list(c("No","Case")))
+S_valP <- dfidx(train_val, shape="wide", choice="Choice", sep="",
+                varying = c(4:83), idx = list(c("No","Case")))
+
+attr_rhs <- "CC+GN+NS+BU+FA+LD+BZ+FC+FP+RP+PP+KA+SC+TS+NV+MA+LB+AF+HU+Price"
+```
+
+# Family 1 — Conditional / Multinomial Logit (baseline)
+
+```{r}
+M1 <- mlogit(as.formula(paste("Choice ~", attr_rhs, "- 1")), data = S_fit)
+summary(M1)
+
+p1  <- predict(M1, newdata = S_val)
+ll1 <- log_loss(val_truth, p1)
+cat("MNL validation log loss:", round(ll1, 5), "\n")
+```
+
+# Family 2 — Mixed (random-parameters) Logit
+
+Random-normal coefficients across respondents, panel over `Case`.
+Start with a random Price coefficient (fast); the commented block makes all
+coefficients random (slower, matches the class example).
+
+```{r}
+rpar_price <- c(Price = "n")
+
+M2 <- mlogit(as.formula(paste("Choice ~", attr_rhs, "- 1")), data = S_fitP,
+             rpar = rpar_price, panel = TRUE, R = 50, halton = NA)
+summary(M2)
+
+p2  <- predict(M2, newdata = S_valP)
+ll2 <- log_loss(val_truth, p2)
+cat("Mixed logit (random Price) validation log loss:", round(ll2, 5), "\n")
+```
+
+```{r eval=FALSE}
+# ALL coefficients random (slower; raise R for final fit)
+attr_vars <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+               "PP","KA","SC","TS","NV","MA","LB","AF","HU","Price")
+rpar_all  <- setNames(rep("n", length(attr_vars)), attr_vars)
+M2b <- mlogit(as.formula(paste("Choice ~", attr_rhs, "- 1")), data = S_fitP,
+              rpar = rpar_all, panel = TRUE, R = 50, halton = NA)
+p2b <- predict(M2b, newdata = S_valP)
+cat("Mixed logit (all random) val log loss:", round(log_loss(val_truth, p2b),5), "\n")
+```
+
+# Family 3 — Hierarchical Bayes MNL
+
+Uses `ChoiceModelR` (wrapper on bayesm's hierarchical MNL sampler). HB gives
+individual-level partworths; holdout probabilities are averaged over posterior
+draws. This is slower (MCMC) and needs a specific long-format input.
+
+```{r eval=FALSE}
+# install.packages("ChoiceModelR")
+library(ChoiceModelR)
+
+# ChoiceModelR wants long format:
+#   columns: id (respondent), set (task), alt (1..4), then attributes, then choice
+# Build it from the wide train_fit.
+attrs <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+           "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+build_hb_long <- function(df) {
+  do.call(rbind, lapply(1:4, function(j) {
+    out <- data.frame(id = df$Case, set = df$Task, alt = j)
+    for (a in attrs) out[[a]] <- df[[paste0(a, j)]]
+    out$Price <- df[[paste0("Price", j)]]
+    # choice: 1..4 on the alt==1 row only (ChoiceModelR convention:
+    # the chosen alt number goes in the 'y' column, 0 for non-first rows)
+    out$y <- ifelse(j == 1, df$Choice, 0)
+    out
+  }))
+}
+hb_long <- build_hb_long(train_fit)
+hb_long <- hb_long[order(hb_long$id, hb_long$set, hb_long$alt), ]
+
+xcoding <- rep(1, length(attrs) + 1)   # 1 = treat as continuous/linear
+mcmc  <- list(R = 2000, use = 1000)    # draws; use last 1000
+options <- list(none = FALSE, save = TRUE)
+
+hb_out <- choicemodelr(hb_long[, c("id","set","alt", attrs, "Price","y")],
+                       xcoding, mcmc = mcmc, options = options)
+# hb_out$betadraw holds per-respondent posterior draws; average choice
+# probabilities over draws for holdout prediction.
+```
+
+> Note: HB in R (`ChoiceModelR` / `bayesm::rhierMnlRwMixture`) needs careful
+> long-format setup and MCMC time. If it's fiddly, the mixed logit (Family 2)
+> gives near-identical predictive performance with a simpler `mlogit` call — so
+> treat HB as optional / for the report's discussion of heterogeneity.
+
+# Comparison
+
+```{r}
+compare <- data.frame(
+  model = c("1_MNL", "2_mixed_logit_price"),
+  val_logloss = round(c(ll1, ll2), 5)
+)
+compare <- compare[order(compare$val_logloss), ]
+compare
+
+# benchmark check
+bench <- matrix(0.25, nrow(val_truth), 4)
+cat("benchmark (0.25 each):", round(log_loss(val_truth, bench), 5), "\n")
+```
+
+# Notes
+
+- MNL and mixed logit both run via `mlogit`; HB (Family 3) is heavier and
+  optional — the research suggests HB and mixed logit are near-equivalent
+  predictively, so Family 2 is the practical "heterogeneity" model.
+- To generate a submission from the winner: refit on ALL of train
+  (all 19 tasks), predict on `test`, write `No,Ch1,Ch2,Ch3,Ch4` (see draft.Rmd
+  submission chunk).
+```

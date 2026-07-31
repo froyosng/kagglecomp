@@ -1,0 +1,128 @@
+---
+title: "Model stability: repeated splits (mean +/- sd log-loss)"
+output: html_document
+date: "2026-07-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+For each candidate model, run ~20 respondent-level splits and record the mean
+and spread of validation log-loss. A model that scores well AND stably (small
+sd) is safer for the hidden private leaderboard than one that scores slightly
+better but swings a lot.
+
+# Setup
+
+```{r}
+library(mlogit)
+train <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/train.csv")
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+
+log_loss <- function(actual, pred, eps = 1e-15) {
+  actual <- as.matrix(actual); pred <- as.matrix(pred)
+  stopifnot(all(dim(actual) == dim(pred)))
+  pred <- pred / rowSums(pred)
+  pred <- pmin(pmax(pred, eps), 1 - eps)
+  -mean(rowSums(actual * log(pred)))
+}
+one_hot <- function(v) { m <- matrix(0, length(v), 4); m[cbind(seq_along(v), v)] <- 1; m }
+apply_temperature <- function(prob, T) {
+  z <- log(pmax(prob, 1e-15)) / T
+  z <- z - apply(z, 1, max); ez <- exp(z); ez / rowSums(ez)
+}
+fit_temperature <- function(prob, truth, grid = seq(0.5, 3, 0.01)) {
+  grid[which.min(sapply(grid, function(T) log_loss(truth, apply_temperature(prob, T))))]
+}
+
+attr_rhs <- "CC+GN+NS+BU+FA+LD+BZ+FC+FP+RP+PP+KA+SC+TS+NV+MA+LB+AF+HU+Price"
+```
+
+# One function that fits a model on a split and returns validation log-loss
+
+```{r}
+# type: "mnl", "mixed", or "mnl_calibrated"
+run_once <- function(seed, type) {
+  set.seed(seed)
+  vc  <- sample(unique(train$Case), round(0.20 * length(unique(train$Case))))
+  fit <- subset(train, !(Case %in% vc))
+  val <- subset(train,   Case %in% vc)
+  truth <- one_hot(val$Choice)
+
+  if (type == "mixed") {
+    Sf <- dfidx(fit, shape="wide", choice="Choice", sep="", varying=c(4:83), idx=list(c("No","Case")))
+    Sv <- dfidx(val, shape="wide", choice="Choice", sep="", varying=c(4:83), idx=list(c("No","Case")))
+    M  <- mlogit(as.formula(paste("Choice ~", attr_rhs, "- 1")), data = Sf,
+                 rpar = c(Price="n"), panel = TRUE, R = 50, halton = NA)
+    p  <- predict(M, newdata = Sv)
+    return(log_loss(truth, p))
+  }
+
+  # MNL (also used as base for the calibrated variant)
+  Sf <- dfidx(fit, shape="wide", choice="Choice", sep="", varying=c(4:83), idx=c("No","Case"))
+  Sv <- dfidx(val, shape="wide", choice="Choice", sep="", varying=c(4:83), idx=c("No","Case"))
+  M  <- mlogit(as.formula(paste("Choice ~", attr_rhs, "- 1")), data = Sf)
+  p  <- predict(M, newdata = Sv)
+
+  if (type == "mnl_calibrated") {
+    # split val in half: fit T on one half, score on the other (honest calibration)
+    idx  <- sample(seq_len(nrow(val)), nrow(val) %/% 2)
+    T_hat <- fit_temperature(p[idx, , drop=FALSE], truth[idx, , drop=FALSE])
+    return(log_loss(truth[-idx, , drop=FALSE], apply_temperature(p[-idx, , drop=FALSE], T_hat)))
+  }
+  log_loss(truth, p)          # plain MNL
+}
+```
+
+# Run repeated splits for each model
+
+```{r}
+n_reps <- 20
+seeds  <- 1:n_reps
+
+summarise_model <- function(type) {
+  lls <- sapply(seeds, function(s) {
+    out <- tryCatch(run_once(s, type), error = function(e) NA)
+    out
+  })
+  lls <- lls[!is.na(lls)]
+  data.frame(model = type,
+             n = length(lls),
+             mean_ll = round(mean(lls), 5),
+             sd_ll   = round(sd(lls), 5),
+             min_ll  = round(min(lls), 5),
+             max_ll  = round(max(lls), 5))
+}
+
+res_mnl        <- summarise_model("mnl")
+res_mnl_cal    <- summarise_model("mnl_calibrated")
+res_mixed      <- summarise_model("mixed")   # slowest
+
+comparison <- rbind(res_mnl, res_mnl_cal,res_mixed)
+comparison <- comparison[order(comparison$mean_ll), ]
+comparison
+```
+
+# Save one summary row per model to a CSV
+
+```{r}
+path <- "/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/submissions_log.csv"
+comparison$date <- as.character(Sys.Date())
+if (file.exists(path)) {
+  prev <- read.csv(path, stringsAsFactors = FALSE)
+  write.csv(rbind(prev, comparison), path, row.names = FALSE)
+} else {
+  write.csv(comparison, path, row.names = FALSE)
+}
+cat("Saved stability summary to", path, "\n")
+```
+
+# How to read this
+
+- **mean_ll** = your honest expected leaderboard score.
+- **sd_ll** = how much it wobbles across splits ~ how much public and private
+  scores may differ. Smaller = safer for the private board.
+- Prefer a model with low mean AND low sd. A model at 1.196 +/- 0.003 is safer
+  than 1.190 +/- 0.02, because the latter could rank worse on the hidden 30%.
+```

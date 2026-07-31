@@ -1,0 +1,98 @@
+---
+title: "Final submission - MNL"
+output: html_document
+date: "2026-07-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Refit the MNL on ALL training data (all respondents, all tasks), predict the
+test set, and write the Kaggle submission `No,Ch1,Ch2,Ch3,Ch4`.
+
+Validation (respondent-level, matching the test set's 263 unseen respondents)
+estimates ~1.22 log-loss.
+
+# Load
+
+```{r}
+library(mlogit)
+train <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/train.csv")
+test  <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/test.csv")
+
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+test$Choice  <- 1L    # placeholder so dfidx can build the test object
+
+attr_rhs <- "CC+GN+NS+BU+FA+LD+BZ+FC+FP+RP+PP+KA+SC+TS+NV+MA+LB+AF+HU+Price"
+```
+
+# Refit MNL on ALL training data
+
+```{r}
+S_all <- dfidx(train, shape="wide", choice="Choice", sep="",
+               varying = c(4:83), idx = c("No","Case"))
+
+M_full <- mlogit(as.formula(paste("Choice ~", attr_rhs, "- 1")), data = S_all)
+summary(M_full)
+```
+
+# Predict the test set
+
+```{r}
+S_test <- dfidx(test, shape="wide", choice="Choice", sep="",
+                varying = c(4:83), idx = c("No","Case"))
+
+test_prob <- predict(M_full, newdata = S_test)   # 4997 x 4
+dim(test_prob)
+summary(rowSums(test_prob))   # should all be 1
+```
+
+# Build & check the submission
+
+```{r}
+sample_sub <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/sample_submission.csv")
+submission <- data.frame(No = test$No,
+                         Ch1 = test_prob[,1], Ch2 = test_prob[,2],
+                         Ch3 = test_prob[,3], Ch4 = test_prob[,4])
+
+stopifnot(all(names(submission) == names(sample_sub)))   # columns match
+stopifnot(all(submission$No == sample_sub$No))           # ids align, same order
+stopifnot(!anyNA(submission))                            # no missing
+cat("rows:", nrow(submission), " row-sum range:", range(rowSums(submission[,-1])), "\n")
+
+if (!dir.exists("submissions")) dir.create("submissions")
+write.csv(submission, "submissions/submission_mnl_final.csv", row.names = FALSE)
+cat("Wrote submissions/submission_mnl_final.csv\n")
+```
+
+# Log the submission
+
+```{r}
+path <- "/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/submissions_log.csv"
+log  <- read.csv(path, stringsAsFactors = FALSE)
+new  <- data.frame(
+  date              = as.character(Sys.Date()),
+  model_name        = "mnl_final",
+  description       = "MNL (conditional logit, no intercept, generic coeffs) refit on all train; respondent-level validation ~1.22",
+  source_citation   = "Class material (mlogit / dfidx)",
+  cv_logloss        = 1.22201,   # mean from respondent-level stability run
+  public_lb_logloss = NA, gap = NA,
+  notes             = "Test has 263 unseen respondents (0 overlap) -> respondent-split validation is the honest estimate.",
+  stringsAsFactors  = FALSE
+)
+write.csv(rbind(log, new), path, row.names = FALSE)
+cat("Logged mnl_final\n")
+```
+
+# After uploading to Kaggle
+
+Fill in the public score once you see it:
+
+```{r eval=FALSE}
+log <- read.csv("submissions_log.csv", stringsAsFactors = FALSE)
+i <- which(log$model_name == "mnl_final")[1]
+log$public_lb_logloss[i] <- 0.000   # <- put the Kaggle public score here
+log$gap[i] <- log$public_lb_logloss[i] - log$cv_logloss[i]
+write.csv(log, "submissions_log.csv", row.names = FALSE)
+```

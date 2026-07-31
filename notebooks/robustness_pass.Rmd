@@ -1,0 +1,177 @@
+---
+title: "Robustness pass - make one submission slice-insensitive (70/30)"
+output: html_document
+date: "2026-07-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+You submit ONE prediction file; Kaggle splits it 70/30. You can't touch the
+split, but you can make predictions robust so they score similarly on any slice
+(public 70% ~ private 30%). This tests three robustness knobs on the covariate
+MNL over 100 respondent-level splits, reporting mean AND sd (sd = how much the
+score swings across subsets ~ your 70/30 stability proxy):
+
+  1. CLIP  - floor probabilities away from 0 (caps worst-case log-loss spikes)
+  2. BLEND - pull predictions gently toward 0.25 uniform (shrinks overconfidence)
+  3. TRIM  - keep only the strongest covariate interactions (less overfit)
+
+# Setup
+
+```{r}
+library(mlogit)
+train <- read.csv("data/train.csv")
+test  <- read.csv("data/test.csv")
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+test$Choice  <- 1L
+
+attrs <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+           "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+ftr   <- c("NS","BU","FP","SC","MA","LB")
+
+log_loss <- function(actual, pred, eps=1e-15){actual<-as.matrix(actual);pred<-as.matrix(pred)
+  pred<-pred/rowSums(pred);pred<-pmin(pmax(pred,eps),1-eps);-mean(rowSums(actual*log(pred)))}
+one_hot <- function(v){m<-matrix(0,length(v),4);m[cbind(seq_along(v),v)]<-1;m}
+
+scale_cov <- function(df){df$incomea_s<-df$incomea/1e5;df$agea_s<-df$agea/50
+  df$milesa_s<-df$milesa/100;df$nighta_s<-df$nighta/50;df}
+# full interaction set, and a TRIMMED set (income + segment only = strongest, most stable)
+add_interactions <- function(df, which_set){
+  df<-scale_cov(df)
+  for(j in 1:4){
+    df[[paste0("PxINC",j)]]<-df[[paste0("Price",j)]]*df$incomea_s
+    df[[paste0("PxSEG",j)]]<-df[[paste0("Price",j)]]*df$segmentind
+    if(which_set=="full"){
+      df[[paste0("PxAGE",j)]]<-df[[paste0("Price",j)]]*df$agea_s
+      df[[paste0("PxMIL",j)]]<-df[[paste0("Price",j)]]*df$milesa_s
+      df[[paste0("PxNGT",j)]]<-df[[paste0("Price",j)]]*df$nighta_s
+    }
+  }
+  df
+}
+stems_full <- c("PxINC","PxSEG","PxAGE","PxMIL","PxNGT")
+stems_trim <- c("PxINC","PxSEG")
+```
+
+# Robustness transforms
+
+```{r}
+clip_probs  <- function(P, floor=0.02){P<-pmax(P,floor);P/rowSums(P)}
+blend_prior <- function(P, lambda=0.05){((1-lambda)*P + lambda*0.25) }  # rows already sum ~1
+```
+
+# Fit covariate MNL on a split, return the raw validation prob matrix + truth
+
+```{r}
+fit_split <- function(seed, which_set){
+  set.seed(seed)
+  vc<-sample(unique(train$Case),round(0.20*length(unique(train$Case))))
+  fit<-subset(train,!(Case %in% vc)); val<-subset(train,Case %in% vc)
+  for(a in ftr) for(j in 1:4){col<-paste0(a,j);tb<-table(fit[[col]])
+    keep<-as.numeric(names(tb)[tb>=30]);modal<-as.numeric(names(which.max(tb)))
+    fit[[col]][!(fit[[col]]%in%keep)]<-modal; val[[col]][!(val[[col]]%in%keep)]<-modal}
+  stems <- if(which_set=="full") stems_full else stems_trim
+  fit<-add_interactions(fit,which_set); val<-add_interactions(val,which_set)
+  extra<-unlist(lapply(stems,function(s)paste0(s,1:4)))
+  vn<-c(names(fit)[4:83],extra)
+  Sf<-dfidx(fit,shape="wide",choice="Choice",sep="",varying=which(names(fit)%in%vn),idx=c("No","Case"))
+  Sv<-dfidx(val,shape="wide",choice="Choice",sep="",varying=which(names(val)%in%vn),idx=c("No","Case"))
+  for(a in ftr){Sf[[a]]<-factor(Sf[[a]]);Sv[[a]]<-factor(Sv[[a]],levels=levels(Sf[[a]]))}
+  rhs<-paste(paste(c(attrs,"Price"),collapse="+"),"+",paste(stems,collapse="+"))
+  M<-mlogit(as.formula(paste("Choice ~",rhs,"- 1")),data=Sf)
+  list(P=predict(M,newdata=Sv), truth=one_hot(val$Choice))
+}
+```
+
+# Evaluate each robustness setting over 100 seeds
+
+```{r}
+seeds  <- 1:100
+batches<- split(seeds, ceiling(seq_along(seeds)/20))
+
+# a "setting" = which interaction set + which post-transform
+eval_setting <- function(which_set, transform){
+  all_ll<-c(); bmeans<-c()
+  for(b in batches){
+    lls<-sapply(b,function(s){
+      out<-tryCatch(fit_split(s,which_set),error=function(e)NULL)
+      if(is.null(out)) return(NA)
+      P<-transform(out$P)
+      log_loss(out$truth,P)
+    })
+    lls<-lls[!is.na(lls)]; all_ll<-c(all_ll,lls); bmeans<-c(bmeans,mean(lls))
+  }
+  data.frame(mean_ll=round(mean(all_ll),5), sd=round(sd(all_ll),5),
+             se=round(sd(bmeans),5))
+}
+
+settings <- list(
+  "full_raw"          = list("full", function(P) P),
+  "full_clip0.02"     = list("full", function(P) clip_probs(P,0.02)),
+  "full_blend0.05"    = list("full", function(P) blend_prior(P,0.05)),
+  "full_clip+blend"   = list("full", function(P) clip_probs(blend_prior(P,0.05),0.02)),
+  "trim_raw"          = list("trim", function(P) P),
+  "trim_clip+blend"   = list("trim", function(P) clip_probs(blend_prior(P,0.05),0.02))
+)
+
+res <- do.call(rbind, lapply(names(settings), function(nm){
+  s <- settings[[nm]]
+  r <- eval_setting(s[[1]], s[[2]]); r$setting <- nm; r
+}))
+res <- res[order(res$mean_ll), c("setting","mean_ll","sd","se")]
+res
+```
+
+# Read it
+
+```{r}
+cat("mean_ll = expected score; sd = swing across subsets (70/30 stability proxy);\n")
+cat("se = precision of the mean over 100 seeds.\n\n")
+cat("Pick the setting with the LOWEST mean that also has a SMALL sd.\n")
+cat("Clipping/blending usually barely change the mean but SHRINK the sd -> more\n")
+cat("stable across whatever 70/30 slice Kaggle draws. That's the robustness win.\n")
+write.csv(res, "robustness_pass.csv", row.names=FALSE)
+```
+
+# Generate the robustified submission (set winner below)
+
+```{r eval=FALSE}
+# choose the winning setting from the table:
+WIN_SET   <- "full"                                  # "full" or "trim"
+WIN_TRANS <- function(P) clip_probs(blend_prior(P,0.05),0.02)
+
+# refit on all train with level alignment
+level_map<-list()
+for(a in ftr){allv<-unlist(train[,paste0(a,1:4)]);tb<-table(allv)
+  level_map[[a]]<-list(keep=as.numeric(names(tb)[tb>=30]),modal=as.numeric(names(which.max(tb))))}
+collapse_rare<-function(df){for(a in ftr)for(j in 1:4){col<-paste0(a,j)
+  df[[col]][!(df[[col]]%in%level_map[[a]]$keep)]<-level_map[[a]]$modal};df}
+
+stems <- if(WIN_SET=="full") stems_full else stems_trim
+trX<-add_interactions(collapse_rare(train),WIN_SET)
+teX<-add_interactions(collapse_rare(test), WIN_SET)
+extra<-unlist(lapply(stems,function(s)paste0(s,1:4)))
+vn<-c(names(trX)[4:83],extra)
+S_all <-dfidx(trX,shape="wide",choice="Choice",sep="",varying=which(names(trX)%in%vn),idx=c("No","Case"))
+S_test<-dfidx(teX,shape="wide",choice="Choice",sep="",varying=which(names(teX)%in%vn),idx=c("No","Case"))
+for(a in ftr){S_all[[a]]<-factor(S_all[[a]]);S_test[[a]]<-factor(S_test[[a]],levels=levels(S_all[[a]]))}
+rhs<-paste(paste(c(attrs,"Price"),collapse="+"),"+",paste(stems,collapse="+"))
+M<-mlogit(as.formula(paste("Choice ~",rhs,"- 1")),data=S_all)
+P<-WIN_TRANS(predict(M,newdata=S_test))
+
+sub<-data.frame(No=test$No,Ch1=P[,1],Ch2=P[,2],Ch3=P[,3],Ch4=P[,4])
+sample_sub<-read.csv("data/sample_submission.csv")
+stopifnot(all(names(sub)==names(sample_sub)),all(sub$No==sample_sub$No),!anyNA(sub))
+write.csv(sub,"submissions/submission_robust.csv",row.names=FALSE)
+
+log<-read.csv("submissions_log.csv",stringsAsFactors=FALSE)
+new<-data.frame(date=as.character(Sys.Date()),model_name="mnl_covar_robust",
+  description="Covariate MNL + clip(0.02)+blend(0.05) robustness pass",
+  source_citation="own experiment",cv_logloss=NA,public_lb_logloss=NA,gap=NA,
+  notes="Robustified for 70/30 stability; see robustness_pass.csv",stringsAsFactors=FALSE)
+write.csv(rbind(log,new),"submissions_log.csv",row.names=FALSE)
+cat("Wrote submissions/submission_robust.csv\n")
+```
+```

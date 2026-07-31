@@ -1,0 +1,151 @@
+---
+title: "MNL improvements - stability comparison (mean, sd, min, max)"
+output: html_document
+date: "2026-07-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Each MNL variant is run over 20 respondent-level splits (matching the test
+set's unseen respondents). For each we report mean / sd / min / max log-loss, so
+we keep only changes that lower the mean WITHOUT inflating the spread.
+
+Fix vs previous version: engineered columns must have NO separator before the
+alternative number (dfidx `sep=""` expects `P21`, not `P2_1`).
+
+# Setup
+
+```{r}
+library(mlogit)
+train <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/train.csv")
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+
+log_loss <- function(actual, pred, eps = 1e-15) {
+  actual <- as.matrix(actual); pred <- as.matrix(pred)
+  stopifnot(all(dim(actual) == dim(pred)))
+  pred <- pred / rowSums(pred)
+  pred <- pmin(pmax(pred, eps), 1 - eps)
+  -mean(rowSums(actual * log(pred)))
+}
+one_hot <- function(v) { m <- matrix(0, length(v), 4); m[cbind(seq_along(v), v)] <- 1; m }
+
+attrs    <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+              "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+attr_rhs <- paste(c(attrs, "Price"), collapse = "+")
+```
+
+# One function: fit a chosen variant on one split, return log-loss
+
+```{r}
+# variant: "baseline", "logprice", "price2", "income_price", "factors"
+run_once <- function(seed, variant) {
+  set.seed(seed)
+  vc  <- sample(unique(train$Case), round(0.20 * length(unique(train$Case))))
+  fit <- subset(train, !(Case %in% vc))
+  val <- subset(train,   Case %in% vc)
+  truth <- one_hot(val$Choice)
+
+  # ---- engineered columns (NO underscore before the alt number) ----
+  add_cols <- function(df) {
+    if (variant == "income_price")
+      for (j in 1:4) df[[paste0("PxI", j)]] <- df[[paste0("Price", j)]] * df$incomea
+    if (variant == "logprice")
+      for (j in 1:4) df[[paste0("lP", j)]]  <- log1p(df[[paste0("Price", j)]])
+    if (variant == "price2")
+      for (j in 1:4) df[[paste0("P2", j)]]  <- df[[paste0("Price", j)]]^2
+    df
+  }
+  fit <- add_cols(fit); val <- add_cols(val)
+
+  # ---- factors variant: collapse rare levels in the wide columns first ----
+  if (variant == "factors") {
+    ftr <- c("NS","BU","FP","SC","MA","LB")
+    for (a in ftr) for (j in 1:4) {
+      col <- paste0(a, j)
+      tab <- table(fit[[col]]); keep <- as.numeric(names(tab)[tab >= 30])
+      modal <- as.numeric(names(which.max(tab)))
+      fit[[col]][!(fit[[col]] %in% keep)] <- modal
+      val[[col]][!(val[[col]] %in% keep)] <- modal
+    }
+  }
+
+  # ---- which wide columns are the alternative-varying ones ----
+  extra <- switch(variant,
+                  income_price = paste0("PxI", 1:4),
+                  logprice     = paste0("lP", 1:4),
+                  price2       = paste0("P2", 1:4),
+                  character(0))
+  vary_names <- c(names(fit)[4:83], extra)
+
+  Sf <- dfidx(fit, shape="wide", choice="Choice", sep="",
+              varying = which(names(fit) %in% vary_names), idx = c("No","Case"))
+  Sv <- dfidx(val, shape="wide", choice="Choice", sep="",
+              varying = which(names(val) %in% vary_names), idx = c("No","Case"))
+
+  # ---- factor the selected attributes AFTER reshape (factors variant) ----
+  if (variant == "factors") {
+    ftr <- c("NS","BU","FP","SC","MA","LB")
+    for (a in ftr) {
+      Sf[[a]] <- factor(Sf[[a]])
+      Sv[[a]] <- factor(Sv[[a]], levels = levels(Sf[[a]]))
+    }
+  }
+
+  # ---- formula ----
+  rhs <- attr_rhs
+  if (variant == "income_price") rhs <- paste(rhs, "+ PxI")
+  if (variant == "logprice")     rhs <- paste(rhs, "+ lP")
+  if (variant == "price2")       rhs <- paste(rhs, "+ P2")
+
+  M <- mlogit(as.formula(paste("Choice ~", rhs, "- 1")), data = Sf)
+  p <- predict(M, newdata = Sv)
+  log_loss(truth, p)
+}
+```
+
+# Run each variant over 20 splits and collect the 5 stats
+
+```{r}
+variants <- c("baseline","logprice","price2","income_price","factors")
+seeds    <- 1:20
+
+summarise_variant <- function(v) {
+  lls <- sapply(seeds, function(s) tryCatch(run_once(s, v), error = function(e) NA))
+  lls <- lls[!is.na(lls)]
+  if (length(lls) == 0)
+    return(data.frame(variant=v, n=0, mean_ll=NA, sd_ll=NA, min_ll=NA, max_ll=NA))
+  data.frame(variant = v,
+             n       = length(lls),
+             mean_ll = round(mean(lls), 5),
+             sd_ll   = round(sd(lls), 5),
+             min_ll  = round(min(lls), 5),
+             max_ll  = round(max(lls), 5))
+}
+
+comparison <- do.call(rbind, lapply(variants, summarise_variant))
+comparison <- comparison[order(comparison$mean_ll), ]
+comparison
+```
+
+# Save the comparison (one row per variant)
+
+```{r}
+path <- "mnl_improvement_stats.csv"
+out  <- comparison; out$date <- as.character(Sys.Date())
+if (file.exists(path)) {
+  write.csv(rbind(read.csv(path, stringsAsFactors=FALSE), out), path, row.names=FALSE)
+} else write.csv(out, path, row.names=FALSE)
+cat("Saved to", path, "\n")
+```
+
+# How to read it
+
+- **mean_ll** — expected score (lower better).
+- **sd_ll** — stability across splits (lower safer for the private board).
+- Keep a variant ONLY if it lowers mean_ll without meaningfully raising sd_ll
+  vs baseline. A tiny mean gain with a big sd jump is not worth it.
+- The winner on BOTH: refit on all train and generate the submission
+  (final_submission_mnl.Rmd, swapping in the winning formula/columns).
+```

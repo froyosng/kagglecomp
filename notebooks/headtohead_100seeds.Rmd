@@ -1,0 +1,148 @@
+---
+title: "Head-to-head: factors vs covariate-MNL vs xgboost (100 seeds, error bars)"
+output: html_document
+date: "2026-07-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Rank models on evidence, not seed luck. All three are evaluated on the SAME 100
+respondent-level splits (seeds 1-100), reported as mean +/- sd-of-batch-means
+(5 batches of 20) so each model gets an honest error bar. A difference bigger
+than the error bars is real; anything smaller is a tie.
+
+# Setup
+
+```{r}
+library(mlogit)
+library(xgboost)
+
+train <- read.csv("/Users/imeldalee/Desktop/TAE KAGGLE/kagglecomp/data/train.csv")
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+
+attrs <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+           "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+vars  <- c(attrs, "Price")
+ftr   <- c("NS","BU","FP","SC","MA","LB")
+
+log_loss <- function(actual, pred, eps = 1e-15) {
+  actual <- as.matrix(actual); pred <- as.matrix(pred)
+  stopifnot(all(dim(actual) == dim(pred)))
+  pred <- pred / rowSums(pred); pred <- pmin(pmax(pred, eps), 1 - eps)
+  -mean(rowSums(actual * log(pred)))
+}
+one_hot <- function(v){m<-matrix(0,length(v),4);m[cbind(seq_along(v),v)]<-1;m}
+
+make_long_diff <- function(df){
+  n<-nrow(df); rows<-vector("list",4)
+  for(j in 1:4){o<-data.frame(chid=seq_len(n),Case=df$Case,alt=j)
+    for(v in vars) o[[v]]<-df[[paste0(v,j)]]; rows[[j]]<-o}
+  long<-do.call(rbind,rows); long<-long[order(long$chid,long$alt),]
+  for(v in vars) long[[paste0(v,"_d")]]<-long[[v]]-ave(long[[v]],long$chid,FUN=mean)
+  long$is_optout<-as.integer(long$alt==4); long
+}
+feats <- c(paste0(vars,"_d"),"is_optout")
+
+scale_cov <- function(df){df$incomea_s<-df$incomea/1e5; df$agea_s<-df$agea/50
+  df$milesa_s<-df$milesa/100; df$nighta_s<-df$nighta/50; df}
+add_interactions <- function(df){df<-scale_cov(df)
+  for(j in 1:4){df[[paste0("PxINC",j)]]<-df[[paste0("Price",j)]]*df$incomea_s
+    df[[paste0("PxAGE",j)]]<-df[[paste0("Price",j)]]*df$agea_s
+    df[[paste0("PxMIL",j)]]<-df[[paste0("Price",j)]]*df$milesa_s
+    df[[paste0("PxNGT",j)]]<-df[[paste0("Price",j)]]*df$nighta_s
+    df[[paste0("PxSEG",j)]]<-df[[paste0("Price",j)]]*df$segmentind}
+  df}
+inter_stems <- c("PxINC","PxAGE","PxMIL","PxNGT","PxSEG")
+```
+
+# The three model runners (each: seed -> validation log-loss)
+
+```{r}
+split_of <- function(seed){set.seed(seed)
+  vc<-sample(unique(train$Case),round(0.20*length(unique(train$Case))))
+  list(fit=subset(train,!(Case %in% vc)), val=subset(train,Case %in% vc))}
+
+collapse_ftr <- function(fit,val){
+  for(a in ftr) for(j in 1:4){col<-paste0(a,j); tab<-table(fit[[col]])
+    keep<-as.numeric(names(tab)[tab>=30]); modal<-as.numeric(names(which.max(tab)))
+    fit[[col]][!(fit[[col]]%in%keep)]<-modal; val[[col]][!(val[[col]]%in%keep)]<-modal}
+  list(fit=fit,val=val)}
+
+run_factors <- function(seed){
+  s<-split_of(seed); cf<-collapse_ftr(s$fit,s$val); fit<-cf$fit; val<-cf$val
+  Sf<-dfidx(fit,shape="wide",choice="Choice",sep="",varying=c(4:83),idx=c("No","Case"))
+  Sv<-dfidx(val,shape="wide",choice="Choice",sep="",varying=c(4:83),idx=c("No","Case"))
+  for(a in ftr){Sf[[a]]<-factor(Sf[[a]]); Sv[[a]]<-factor(Sv[[a]],levels=levels(Sf[[a]]))}
+  M<-mlogit(as.formula(paste("Choice ~",paste(c(attrs,"Price"),collapse="+"),"- 1")),data=Sf)
+  log_loss(one_hot(val$Choice), predict(M,newdata=Sv))}
+
+run_covar <- function(seed){
+  s<-split_of(seed); cf<-collapse_ftr(s$fit,s$val)
+  fit<-add_interactions(cf$fit); val<-add_interactions(cf$val)
+  extra<-unlist(lapply(inter_stems,function(x)paste0(x,1:4)))
+  vn<-c(names(fit)[4:83],extra)
+  Sf<-dfidx(fit,shape="wide",choice="Choice",sep="",varying=which(names(fit)%in%vn),idx=c("No","Case"))
+  Sv<-dfidx(val,shape="wide",choice="Choice",sep="",varying=which(names(val)%in%vn),idx=c("No","Case"))
+  for(a in ftr){Sf[[a]]<-factor(Sf[[a]]); Sv[[a]]<-factor(Sv[[a]],levels=levels(Sf[[a]]))}
+  rhs<-paste(paste(c(attrs,"Price"),collapse="+"),"+",paste(inter_stems,collapse="+"))
+  M<-mlogit(as.formula(paste("Choice ~",rhs,"- 1")),data=Sf)
+  log_loss(one_hot(val$Choice), predict(M,newdata=Sv))}
+
+run_xgb <- function(seed){
+  s<-split_of(seed); Lf<-make_long_diff(s$fit); Lv<-make_long_diff(s$val)
+  yf<-as.integer(Lf$alt==s$fit$Choice[Lf$chid])
+  m<-xgb.train(list(objective="binary:logistic",eval_metric="logloss",
+                    max_depth=4,eta=0.05,subsample=0.8,colsample_bytree=0.8),
+               xgb.DMatrix(as.matrix(Lf[,feats]),label=yf),nrounds=400,verbose=0)
+  pv<-predict(m,xgb.DMatrix(as.matrix(Lv[,feats]))); pv<-pv/ave(pv,Lv$chid,FUN=sum)
+  log_loss(one_hot(s$val$Choice), matrix(pv,ncol=4,byrow=TRUE))}
+```
+
+# Evaluate each on 100 seeds, in 5 batches of 20 (for an error bar)
+
+```{r}
+eval_model <- function(run_fn, seeds = 1:100, batch = 20) {
+  vals <- sapply(seeds, function(s) tryCatch(run_fn(s), error=function(e) NA))
+  ok   <- vals[!is.na(vals)]
+  # batch means (for the error bar on the mean)
+  b_means <- sapply(split(seq_along(ok), ceiling(seq_along(ok)/batch)),
+                    function(ix) mean(ok[ix]))
+  data.frame(n = length(ok),
+             mean_ll   = round(mean(ok), 5),
+             overall_sd= round(sd(ok), 5),           # spread across single splits
+             se_of_mean= round(sd(b_means), 5),      # precision of the estimate
+             lo        = round(mean(ok) - sd(b_means), 5),
+             hi        = round(mean(ok) + sd(b_means), 5))
+}
+
+cat("Evaluating factors-only (100 seeds)...\n");        r_fac <- eval_model(run_factors)
+cat("Evaluating factors+covariate (100 seeds)...\n");   r_cov <- eval_model(run_covar)
+cat("Evaluating xgboost (100 seeds)...\n");             r_xgb <- eval_model(run_xgb)
+```
+
+# Ranked comparison with error bars
+
+```{r}
+comparison <- rbind(
+  cbind(model="factors_only",         r_fac),
+  cbind(model="factors_plus_covar",   r_cov),
+  cbind(model="xgboost",              r_xgb)
+)
+comparison <- comparison[order(comparison$mean_ll), ]
+comparison
+
+cat("\nHow to read: two models are a genuine tie if their [lo, hi] error bars\n",
+    "overlap. A model is really better only if its hi < the other's lo.\n")
+```
+
+# Save
+
+```{r}
+path <- "model_headtohead_100seeds.csv"
+out <- comparison; out$date <- as.character(Sys.Date())
+if (file.exists(path)) write.csv(rbind(read.csv(path), out), path, row.names=FALSE) else
+  write.csv(out, path, row.names=FALSE)
+cat("Saved model_headtohead_100seeds.csv\n")
+```
