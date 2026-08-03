@@ -1,0 +1,7 @@
+"candidate","status","logloss","delta_vs_base","max_abs_extra_coef","passes_screen","detail"
+"age_df3","ok",1.16316426858722,0.00348282137608802,0.287218129981675,FALSE,"natural cubic spline (ns), knots on training respondents only"
+"miles_df3","ok",1.15825837643698,-0.00142307077415293,1.46052832430814,TRUE,"natural cubic spline (ns), knots on training respondents only"
+"income_df3","ok",1.16080591736719,0.00112447015605555,1.22352528409932,FALSE,"natural cubic spline (ns), knots on training respondents only"
+"age_df4","ok",1.16265079919565,0.00296935198451731,0.349203581829416,FALSE,"natural cubic spline (ns), knots on training respondents only"
+"miles_df4","ok",1.16228771116271,0.00260626395157981,2.34002396799895,FALSE,"natural cubic spline (ns), knots on training respondents only"
+"income_df4","ok",1.16077704067587,0.00109559346474009,1.30216839914507,FALSE,"natural cubic spline (ns), knots on training respondents only"
