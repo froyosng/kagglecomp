@@ -1714,7 +1714,19 @@ historical record.
    before judging closed) worth stating plainly in the report rather than
    glossing over. None of these four can be independently verified the way
    every other result in this project has been, since no source script
-   exists in this checkout.
+   exists in this checkout. Separately, merging every stray local/remote
+   branch into `zhenhao` as part of this same cleanup surfaced two more
+   fully-run, pre-registered, but never-logged experiments:
+   `codex_neighbor_pooled_version_correction` (a kNN-kernel generalization
+   of the already-rejected version-level Newton opt-out correction --
+   rejected, gain -0.0000231, CI crosses zero, with a mechanism check
+   showing pooling actively hurts the low-peer-count respondents it was
+   meant to help) and `codex_smooth_spline_covariates` (natural-cubic-spline
+   age/miles/income interactions -- one candidate, miles_df3, near-missed
+   canonical CV but was rejected on repeated CV, CI [-0.000977,+0.001684]).
+   Both are now logged in submissions_log.csv with full detail; unlike the
+   four Kaggle-only gaps above, their source code was recovered intact from
+   the merged branches and can be independently reproduced.
 1. **`competition_report.qmd` needs a headline/results update** to
    `segment_shift_v15` (1.143255 CV / 1.200 public / 1.199 private) as the
    team's actual final selected submission, PLUS an honest accounting of
