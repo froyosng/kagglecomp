@@ -64,10 +64,11 @@ predictions before calculating log loss. Model improvements were judged by
 paired respondent bootstrap comparisons, whose standard deviation was about
 0.001, rather than by coefficient significance alone.
 
-# Best model: ensemble\_v11 + neural ensemble diversity + set-context network
+# Best model: ensemble\_v11 + neural ensemble diversity + set-context network + segment-shift pruning
 
 Our best submitted model adds a set-context feed-forward network on top of
-the earlier **ensemble\_v11 + MLP**:
+the earlier **ensemble\_v11 + MLP**, then prunes two structurally
+unreliable terms from its logit component:
 
 $$
 \hat{\mathbf p}=0.889\,\hat{\mathbf p}_{\text{v11+mlp}}+0.111\,\hat{\mathbf p}_{\text{setctx}},
@@ -78,16 +79,29 @@ $$
 0.20\,\hat{\mathbf p}_{\text{xgb}}.
 $$
 
-It achieves **1.143533 respondent-grouped CV log loss and 1.200 public
-leaderboard log loss**, improving on both counts over ensemble\_v11+MLP
-(1.143789 CV / 1.201 public) and substantially over the 1.38629 benchmark.
-Its canonical-split confidence interval was a wide near-miss, but six
-additional independent fold-seed assignments (repeated cross-validation)
-strengthened the signal rather than weakening it--the reverse of this
-project's usual near-miss pattern--and cleared our pre-stated significance
-bar. This is the second refinement, out of many dozens tested after
-ensemble\_v11, whose public-leaderboard result was checked against its
-CV-predicted direction and matched (Section 4).
+The set-context addition achieves **1.143533 respondent-grouped CV log loss
+and 1.200 public leaderboard log loss**, improving on both counts over
+ensemble\_v11+MLP (1.143789 CV / 1.201 public) and substantially over the
+1.38629 benchmark. Its canonical-split confidence interval was a wide
+near-miss, but six additional independent fold-seed assignments (repeated
+cross-validation) strengthened the signal rather than weakening it--the
+reverse of this project's usual near-miss pattern--and cleared our
+pre-stated significance bar. This is the second refinement, out of many
+dozens tested after ensemble\_v11, whose public-leaderboard result was
+checked against its CV-predicted direction and matched (Section 4).
+
+A final refinement, **segment-shift pruning**, then improved
+`m8trpg` itself. A structural audit (Section 3) found that two of its
+already-deployed market-segment terms (`In_seg3`, `In_seg5`, capturing
+segments 3 and 5's opt-out-margin deviation) are statistically
+indistinguishable from zero on the full training set (p=0.758, p=0.404)
+even though their *price-sensitivity* counterparts are highly significant
+(p<1e-10)--and segments 3 and 5 are exactly the segments whose share of
+the loss function explodes from 9.4% in training to 68.8% in test.
+Dropping only these two terms improved respondent-grouped CV, propagated
+through the full ensemble, from **1.143533 to 1.143255** (repeated CV: 6/6
+seeds positive, 95% CI [0.0000441, 0.0003292], excluding zero). This is
+now our submitted, standing best model.
 
 ## Structured conditional-logit component
 
@@ -343,6 +357,26 @@ respondent-bootstrap 95% interval of **[-0.0057, 0.029]** includes zero.
 Log-income interactions did not improve validation. We therefore treat income
 shift as a real risk factor, not as a quantified causal explanation.
 
+A second, more extreme shift was found by directly auditing the model's
+existing parameters rather than proposing a new one. The market-segment
+covariate shifts far more sharply than income: segment 6 is 27.0% of the
+1,135 training respondents but 0% of the 263 test respondents, while
+segments 3 and 5 are only 9.4% of training combined but 68.8% of test--an
+adversarial-validation classifier on segment alone reaches **AUC 0.898**,
+dwarfing income's 0.634. A full-data coefficient audit of `m8trpg` found
+that segments 3 and 5's opt-out-margin deviation terms are statistically
+indistinguishable from zero even on the full training set (p=0.758, p=0.404)
+while their price-sensitivity counterparts are highly significant
+(p<1e-10)--two already-weak, already-deployed parameters whose
+loss-function weight explodes roughly sevenfold between training and test.
+Dropping only these two terms improved respondent-grouped CV on the whole
+population (not merely a subgroup), amplifying monotonically on the
+30% of training respondents most similar to test, and survived repeated
+cross-validation at the full-ensemble level (Section 2). This is the only
+case in the project where auditing an already-deployed parameter against a
+known distribution shift, rather than adding a new mechanism, produced a
+promotable improvement.
+
 The conjoint experiment is also heavily blocked: each task position draws from
 about 296 exact designs, seen by 3.8 respondents on average, and **98.5%**
 (4,921/4,997) of test tasks exactly repeat a train design. Cross-fitted
@@ -389,6 +423,19 @@ been confirmed on the public leaderboard, and together with the price-curve
 and interaction-augmented submissions it forms a consistent three-point
 pattern: well-behaved ensemble-class additions transfer reliably, while
 additions with unbounded or high-variance structure do not.
+
+A fourth submission, segment-shift pruning, is a smaller and more targeted
+refinement than any of the above--a full-ensemble CV improvement of only
+0.000278, an order of magnitude below the others. It scored **1.200
+public**, identical to the prior submission at three-decimal display
+precision. Because the CV-predicted gain sits below both Kaggle's rounding
+granularity and this project's own quantified paired-comparison noise floor
+(about 0.001), this result neither confirms nor refutes the CV-predicted
+direction--unlike the three-point pattern above, it is genuinely
+uninformative at this resolution. We retain it as the standing best on the
+strength of its CV evidence (Section 2) and its structural rationale (a
+directly diagnosed distribution-shift mechanism, not a speculative new
+feature), not because the public leaderboard confirmed it.
 
 Leaderboard differences must also be interpreted at the respondent level. A
 snapshot of the real public leaderboard (43 teams, 27 July 2026) placed us 16th
@@ -446,17 +493,30 @@ objective, two further tree-learner families with different
 categorical-splitting mechanisms, a genuinely pre-registered architecture
 search, repeated cross-validation that overturned an apparent significant
 result rather than merely confirming ones already rejected, the newly
-confirmed design-rotation structure, and a further wave of learned choice-set
+confirmed design-rotation structure, a further wave of learned choice-set
 features, stagewise boosting, price-curve shrinkage, and a kernel-machine
-diversity component, all converging on the same narrow ceiling. Three real
-submitted comparisons of a more flexible or differently-structured model
-against the plainer ensemble now exist: two favor the plainer ensemble
-(the standalone logit and the interaction-augmented candidate), while the
-third--the set-context network, itself a plain ensemble-class addition
-rather than an unbounded or high-variance one--confirmed a genuine, if
-small, improvement. An independently-run adversarial search--explicitly
-instructed not to stop early--reached the same exhaustion conclusion via
-two more genuinely new experiments before the set-context result arrived.
+diversity component, and--in a final round--a dedicated opt-out/bundle
+hurdle model, four independent generalizations of the softmax link/scale
+(all rejecting decisively rather than merely falling short), a
+difficulty-predictability diagnostic (real but non-exploitable loss
+predictability), a set-context pooling-statistic addition, and six
+externally-proposed mechanisms spanning consideration-set screening,
+relative price-gap and salience weighting, and semantics-motivated taste
+heterogeneity and feature-family saturation, all converging on the same
+narrow ceiling. Four real submitted comparisons of a more flexible,
+differently-structured, or more rigorously-audited model against the
+plainer ensemble now exist: two favor the plainer ensemble (the standalone
+logit and the interaction-augmented candidate); the set-context network, a
+plain ensemble-class addition, confirmed a genuine, if small, improvement;
+and segment-shift pruning improved CV by an order of magnitude less,
+scoring identically to its predecessor at display precision--consistent
+with, not contradicting, the pattern. An independently-run adversarial
+search--explicitly instructed not to stop early--reached the same
+exhaustion conclusion via more than a dozen further genuinely new
+experiments, one of which (segment-shift pruning) was the only one to
+surface a promotable improvement, itself found not by proposing a new
+mechanism but by auditing an existing parameter against a known
+distribution shift.
 
 Limitations remain. Stated choices contain unobserved taste and within-person
 inconsistency; train and test respondents differ measurably; absolute CV
