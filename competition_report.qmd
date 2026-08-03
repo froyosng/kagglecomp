@@ -246,6 +246,10 @@ The experiments also established useful negative results:
   remained behind the structured logit. A long-format binary xgboost followed
   by within-task renormalization scored 1.2053 versus 1.2042 for its wide
   multiclass counterpart; renormalization is not a genuine ranking objective.
+  A subsequent `rank:ndcg` model grouped alternatives by choice task and improved
+  xgboost's CV loss from 1.178668 to 1.163610, confirming that a true ranking
+  loss learns useful within-task comparisons. A broader hyperparameter retune
+  reached only 1.176029, however, and neither variant displaced ensemble_v11.
   A teammate's random forest reported 1.1616 under a row-level split but 1.259
   publicly, illustrating the leakage caused by splitting repeated tasks rather
   than respondents.
@@ -253,7 +257,13 @@ The experiments also established useful negative results:
   feature load, and additional price interactions with gender, urbanicity, or
   education did not generalize. Categorical price interactions with sparse
   night-driving and mileage bins caused quasi-separation; only balanced age
-  bins gave a negligible gain. A log-income transformation was also null.
+  bins gave a negligible gain. Extending cheapest/dearest rank flags to the
+  other attributes was null because most level codes are unordered categories.
+  Continuous three-way terms avoided the sparse-bin problem: Price $\times$
+  income $\times$ mileage had a negative coefficient in all five folds, but its
+  ensemble gain was only 0.000495 and its respondent-bootstrap 95% interval
+  **[-0.000689, 0.001660]** crossed zero. Segment-specific mileage-price slopes
+  were significantly harmful. A log-income transformation was also null.
 - **Combination methods.** A nested-CV conditional-logit stack on the base
   models' log probabilities [@wolpert1992] scored 1.146126, marginally worse
   than the simple probability blend. With only two base models and a small
@@ -377,8 +387,14 @@ loss from 1.1470 to about 1.1577, but the highest-income training tercile
 actually had the best loss. Two income-reweighting estimates put the shift's
 contribution to the 0.057 CV-public gap near 0.010 (about 18%), yet a
 respondent-bootstrap 95% interval of **[-0.0057, 0.029]** includes zero.
-Log-income interactions did not improve validation. We therefore treat income
-shift as a real risk factor, not as a quantified causal explanation.
+We also tested a genuine density-ratio weighted refit, with both fitting and
+held-out evaluation targeted toward test-like respondents [@shimodaira2000].
+Even the gentlest weight was harmful in every fold: target-weighted loss rose
+from 1.159787 to 1.161203, and the 95% interval for its gain was
+**[-0.002614, -0.000422]**. Reweighting reduced effective sample size enough
+that variance outweighed any targeting benefit. Log-income interactions did
+not improve validation. We therefore treat income shift as a real risk factor,
+not as a quantified causal explanation or a validated correction.
 
 A second, more extreme shift was found by directly auditing the model's
 existing parameters rather than proposing a new one. The market-segment
@@ -562,9 +578,10 @@ log-loss uncertainty is about 0.01 even though paired model comparisons are
 much tighter; and the private split is both unseen and smaller than the public
 split. Calibration and subgroup checks are descriptive rather than guarantees
 under shift. Finally, design-cell shrinkage and both scoped and price-scale
-latent classes were necessarily finite specifications, so other ranking objectives or richer externally observed
-covariates could still help. Given the two-submission daily limit, however,
-unvalidated leaderboard probing would be less defensible than retaining the
-CV-selected ensemble.
+latent classes were necessarily finite specifications, and the tested ranking,
+regularization, reweighting, and interaction variants do not exhaust all
+possible specifications or richer externally observed covariates. Given the
+two-submission daily limit, however, unvalidated leaderboard probing would be
+less defensible than retaining the CV-selected ensemble.
 
 # References
