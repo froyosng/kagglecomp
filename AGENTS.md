@@ -1638,15 +1638,28 @@ audit and historical-pattern trace-back. `segment_shift_v15` (1.143255 CV,
   axis (see negative results above) -- didn't transfer, but was a legitimate
   idea worth checking.
 - Zeening's second model (`012_rf_xgb_ensemble.R`, RF+XGB ensemble) was
-  reviewed before submission and flagged as likely leakage-inflated -- same
-  pattern as her first model, could not confirm a respondent-grouped split
-  from the pasted code. An independent diagnostic (fixed XGBoost config,
-  row-based vs. grouped 5-fold) confirmed the mechanism is real (~0.134 gap
-  on that config alone). Submitted anyway 2026-07-31: public **1.224** vs.
-  her claimed CV 1.02 -- gap 0.204, larger even than the diagnostic's
-  estimate. Confirms her claimed 1.02 was never real; worse than the
-  project's current best (1.200). See submissions_log.csv
-  (`zeening_rf_xgb_ensemble`) for full detail.
+  reviewed before any submission decision and flagged as likely
+  leakage-inflated -- same pattern as her first model, could not confirm a
+  respondent-grouped split from the pasted code. An independent diagnostic
+  (fixed XGBoost config, row-based vs. grouped 5-fold) confirmed the
+  mechanism is real (~0.134 gap on that config alone). Her claimed CV 1.02
+  should never be cited or compared to a respondent-grouped CV number in
+  this project. **Correction (2026-08-03):** this entry previously claimed
+  she submitted anyway with public 1.224; reconciling the team's full
+  Kaggle history after the deadline found no file matching this model at
+  all -- that 1.224 score (1.219 private) actually belongs to a different
+  submission, `submission_clarence_honest_ensemble.csv` (below). There is no
+  evidence this Zeening script was ever submitted. See submissions_log.csv
+  (`zeening_rf_xgb_ensemble`) for the corrected row.
+- **Honest rebuild of Clarence's ensemble, submitted 2026-07-31: public
+  1.224, private 1.219** (Kaggle label "clarence latest submission"). Built
+  earlier this project to fix a weight-selection bias in her original
+  script (grid search directly against the same holdout it then reported as
+  the result, 1.142181 -- optimistic by 0.0228); the honest, fold-cross-fitted
+  rebuild (XGB=0.428, mixed/mlogit=0.504, RF=0.068) gives 1.164980 CV, and
+  both leaderboard scores sit close to that honest estimate rather than
+  implying the suspicious gap the original overfit number would have.
+  Logged in submissions_log.csv as `clarence_honest_ensemble`.
 - Imelda's `mnl+xgb` (branch `imelda`, `notebooks/experiments/ensemble_mnl_xgb.Rmd`)
   submitted 2026-07-28: public **1.255**. Unlike Clarence's/Zeening's, her
   internal validation IS respondent-grouped (20 splits sampling unique `Case`)
@@ -1672,26 +1685,57 @@ audit and historical-pattern trace-back. `segment_shift_v15` (1.143255 CV,
   scripts and write-up are kept for reproducibility.
 
 ## Next steps
-1. **`competition_report.qmd` needs a headline update to `segment_shift_v15`**
-   (1.143255 CV / 1.200 public), the new standing best, superseding the
-   `set_context_utility_network_v14` writeup. Needs: the `In_seg3`/`In_seg5`
-   pruning story (the segment train/test shift finding, more extreme than
-   the already-reported income shift -- segment 6 is 27.0% of training/0% of
-   test, segments 3+5 are 9.4% of training/68.8% of test), the dose-response
-   confirmation on test-like respondents, the repeated-CV and full-ensemble
-   propagation numbers, and a note that its public score is displayed
-   identical to v14's (3-decimal rounding, gain below Kaggle's granularity)
-   -- retained on CV rigor, not a confirmed public delta. Also needs the
-   closure summary of the adversarial-modelling/external-review round below
-   for the "alternatives tried" section. Re-render to PDF and recheck the
-   8-page limit after the addition.
-2. **Submission budget**: `submission_set_context_v14_candidate.csv`
-   (2026-07-30, public 1.200), `zeening_rf_xgb_ensemble` (2026-07-31, public
-   1.224, confirmed leakage), and `submission_segment_shift_v15_candidate.csv`
-   (2026-07-31, public 1.200) are all logged and submitted. Per the user
-   (2026-07-31), all submissions for this project have now been made --
-   no further Kaggle slots are being planned. Any further experiments from
-   here are for CV/report completeness only, not for another submission.
+**The competition deadline (1 Aug 2026, 12:00 SGT) has passed and the
+private leaderboard is now visible.** There are no more submissions to
+make and no further modeling next-steps in the usual sense -- what
+remains is finalizing the report and the repository as an accurate
+historical record.
+
+0. **Post-deadline reconciliation (2026-08-03).** The user supplied a
+   screenshot of the team's complete Kaggle submission history (public AND
+   private columns, both now visible). Reconciling it against this log
+   found: (a) a correction -- a prior entry in this file wrongly claimed
+   Zeening's `012_rf_xgb_ensemble.R` was submitted with public 1.224; no
+   such file exists in the real history, and that score in fact belongs to
+   `submission_clarence_honest_ensemble.csv` (public 1.224, private 1.219),
+   which has now been logged correctly under `clarence_honest_ensemble`;
+   (b) `private_lb_logloss`/`private_gap` columns added to
+   submissions_log.csv for every submission now known; (c) four
+   submissions in the real Kaggle history with no corresponding script
+   anywhere in this repo/branches/logs -- `mnl_covar`, `mnl_covar_blend`,
+   `shifted_grid_blend_019`, and, most importantly,
+   **`hierarchical_pool_v18_balanced`, whose private score (1.194) beats
+   every model in this project**, including `segment_shift_v15` (1.199),
+   the model actually selected as the team's final Kaggle submission. This
+   model was never logged or known before the deadline, so it was never a
+   candidate when the final-submission choice was made -- a genuine
+   process gap (something was generated and submitted, likely by Codex or
+   the user directly, without being folded back into these three files
+   before judging closed) worth stating plainly in the report rather than
+   glossing over. None of these four can be independently verified the way
+   every other result in this project has been, since no source script
+   exists in this checkout.
+1. **`competition_report.qmd` needs a headline/results update** to
+   `segment_shift_v15` (1.143255 CV / 1.200 public / 1.199 private) as the
+   team's actual final selected submission, PLUS an honest accounting of
+   the reconciliation above -- the `hierarchical_pool_v18_balanced` private
+   score being better than the selected final is a genuinely important,
+   slightly uncomfortable fact for a competition report to include, not
+   omit. Also needs: the `In_seg3`/`In_seg5` pruning story, the
+   repeated-CV and full-ensemble propagation numbers, and now that private
+   scores exist for many submissions, an updated CV-vs-public-vs-private
+   fit discussion (this project can finally check how well CV/public
+   predicted the actual private result, not just the public proxy). Also
+   needs the closure summary of the adversarial-modelling/external-review
+   round below for the "alternatives tried" section. Re-render to PDF and
+   recheck the 8-page limit after the addition.
+2. **Repository cleanup requested by the user (2026-08-03)**: consolidate
+   every branch authored solely by the user/Codex (all `codex-*` branches,
+   `main-cleanup`, `modeling-lead-base`, `report-rewrite`,
+   `worktree-agent-*`) into `zhenhao`, then delete them (local and remote),
+   keeping only `main`, `zhenhao`, `zeening`, `imelda`, `clarence`. See the
+   git-state notes below for which of these were already merged vs. still
+   needed a merge, and the final branch list after cleanup.
 3. Do not re-litigate closed structural-model territory (panel mixed logit,
    latent-class logit, hierarchical Bayesian mixed logit) -- see the "Model
    progression" negative-results list and relevant "Resolved" sections if

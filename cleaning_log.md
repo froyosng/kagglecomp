@@ -2679,32 +2679,78 @@ entire accumulated search history, via yet another angle.
 `set_context_utility_network_v14` (1.143533 CV / 1.200 public) remains the
 final model, now with an even more thoroughly exhausted search behind it.
 
-## 2026-07-31: Zeening's second submission confirms the leakage diagnosis
+## 2026-07-31: Zeening's second model flagged for leakage (provenance corrected 2026-08-03)
 
 Teammate Zeening shared a new model (`012_rf_xgb_ensemble.R`, an RF+XGB
 ensemble) reporting an internal CV log loss of 1.02 -- a number that would
 be dramatically better than anything else in this project if real. Reviewed
-before submission: same red flag as her first model (`rf_gridsearch`,
-logged 2026-07-26, public 1.259 vs. claimed CV 1.162) -- the pasted script's
-internal validation split could not be confirmed as respondent-grouped.
-Rather than take the claim on faith, ran an independent diagnostic: a fixed
-XGBoost config compared row-based vs. respondent-grouped 5-fold CV on the
-same raw features. Row-based CV came in ~0.134 better than grouped CV on
-that config alone, confirming the leakage mechanism is real and large on
-this dataset (same mechanism flagged for Zeening's first model and
-Clarence's task-based split) independent of her specific ensemble code.
+before any submission decision: same red flag as her first model
+(`rf_gridsearch`, logged 2026-07-26, public 1.259 vs. claimed CV 1.162) --
+the pasted script's internal validation split could not be confirmed as
+respondent-grouped. Rather than take the claim on faith, ran an independent
+diagnostic: a fixed XGBoost config compared row-based vs. respondent-grouped
+5-fold CV on the same raw features. Row-based CV came in ~0.134 better than
+grouped CV on that config alone, confirming the leakage mechanism is real
+and large on this dataset (same mechanism flagged for Zeening's first model
+and Clarence's task-based split) independent of her specific ensemble code.
 
-She submitted anyway (submission slots were available). Result: public
-**1.224**, a gap of 0.204 from her claimed 1.02 -- larger even than the
-diagnostic's estimate, consistent with her real pipeline leaking more than
-the simplified single-config demo, plus ordinary CV-to-public generalization
-gap on top. This is the second time in this project a teammate's
-unrealistically good internal CV number has been flagged as leakage before
-submission and then confirmed by the real public score. Her claimed 1.02
-should never be cited or compared to a respondent-grouped CV number again.
-1.224 is worse than the project's current best (1.200); no change to the
-standing recommendation. Logged in submissions_log.csv as
-`zeening_rf_xgb_ensemble`.
+**Correction (2026-08-03):** this section originally went on to claim she
+submitted the model anyway and that it scored public 1.224, based on
+reading the user's later message "she got 1.224" as being about this
+script. Reconciling the team's complete Kaggle submission history (obtained
+after the deadline) against this log found no file matching this model
+anywhere -- the 1.224 public score (1.219 private) in fact belongs to
+`submission_clarence_honest_ensemble.csv`, a different model entirely (see
+below), which Kaggle itself labels "clarence latest submission." There is
+no evidence this Zeening script was ever actually submitted. The leakage
+diagnosis above is unaffected by this correction -- it came from direct
+code review and an independent experiment, not from any submitted score --
+her claimed CV 1.02 should still never be cited or compared to a
+respondent-grouped CV number in this project, but no public/private score
+should be attributed to this model unless an actual submission surfaces.
+Logged in submissions_log.csv as `zeening_rf_xgb_ensemble` (correction noted
+inline in that row).
+
+## 2026-08-03: honest rebuild of Clarence's ensemble submitted, and a full
+Kaggle-history reconciliation after the deadline
+
+After the competition closed, the user shared a screenshot of the team's
+complete Kaggle submission history (both public and private leaderboard
+columns, visible now that judging has concluded) and asked for it to be
+reconciled against this project's own logs. This surfaced the correction
+above, plus several other findings:
+
+`submission_clarence_honest_ensemble.csv` -- the fold-cross-fitted
+honest-weight rebuild of Clarence's xgboost+RF+mlogit ensemble (built
+earlier this project to correct a weight-selection bias: the original
+script chose blend weights by grid search directly against the same 20%
+holdout it then reported as the result, an optimistic-by-construction
+1.142181 against a genuine 1.164980) -- was in fact the model submitted and
+scored **public 1.224, private 1.219**, both consistent with the honest CV
+estimate (gaps of 0.059 and 0.054, in line with this project's usual
+ensemble-class gap) rather than the suspicious gap the original
+overfit-to-holdout number would have implied.
+
+Private-leaderboard scores are now available for every submission this
+project and its teammates ever made, added to submissions_log.csv as new
+`private_lb_logloss`/`private_gap` columns. Four more submissions in the
+team's Kaggle history had no corresponding script, CV number, or write-up
+anywhere in this repo, on any branch, or in this log: `mnl_covar` (public
+1.249/private 1.245), `mnl_covar_blend` (public 1.245/private 1.241),
+`shifted_grid_blend_019` (public 1.216/private 1.226 -- notably worse
+private than public, the reverse of this project's usual pattern, and
+plausibly another of Zeening's numbered scripts given the `019` prefix
+matching her `007`/`012` naming convention, though this is inferred from
+the filename alone), and most consequentially **`hierarchical_pool_v18_balanced`**
+(public 1.200/private **1.194**) -- a private score better than every other
+model in this project, including `segment_shift_v15` (1.199), the model
+actually selected as the team's final submission. This model was never
+logged or known to this log's maintainer before the deadline, so it was
+never a candidate when the final-submission choice was made under genuine
+uncertainty. No source script exists in this checkout for any of these
+four, so none of them can be independently verified the way every other
+result in this project has been -- they are logged as raw, honest Kaggle
+facts with that limitation stated plainly, not as verified findings.
 
 ## 2026-07-31: Dedicated hurdle (opt-out / conditional-bundle) model -- clean, decisive reject
 

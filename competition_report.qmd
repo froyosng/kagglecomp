@@ -101,7 +101,9 @@ the loss function explodes from 9.4% in training to 68.8% in test.
 Dropping only these two terms improved respondent-grouped CV, propagated
 through the full ensemble, from **1.143533 to 1.143255** (repeated CV: 6/6
 seeds positive, 95% CI [0.0000441, 0.0003292], excluding zero). This is
-now our submitted, standing best model.
+our final selected Kaggle submission: **1.200 public, 1.199 private**
+leaderboard log loss, now that the competition has closed and the private
+score is visible (Section 3).
 
 ## Structured conditional-logit component
 
@@ -338,10 +340,31 @@ several added terms had very small p-values yet worsened the holdout score.
 # Public versus private leaderboard fit
 
 The public leaderboard evaluates approximately 70% of the 4,997 test tasks; the
-remaining 30% forms the unseen private leaderboard. The public gap has not been
-constant: mod1 was 0.034 worse than local validation, mod7 0.028 worse,
-ensemble_v9 0.052 worse, and ensemble_v11 0.057 worse. This prevents us from
-projecting the private score by simply adding a fixed correction to CV.
+remaining 30% formed the private leaderboard, unseen until the competition
+closed. The public gap has not been constant: mod1 was 0.034 worse than local
+validation, mod7 0.028 worse, ensemble_v9 0.052 worse, and ensemble_v11 0.057
+worse. This prevented us from projecting the private score by simply adding a
+fixed correction to CV.
+
+Now that the private leaderboard is visible, we can check this directly rather
+than only simulate it. Across 18 team submissions with both scores recorded,
+public and private log loss correlate at **r=0.979** (Spearman 0.961); private
+was on average 0.004 *better* than public (sd 0.005, max absolute difference
+0.013), so the public leaderboard was, in practice, an unbiased and low-noise
+proxy for private in this competition--reassuring given we could not validate
+against it directly beforehand. CV predicted private slightly less tightly
+than it predicted public (r=0.787 vs. 0.845; mean CV-to-private gap 0.052,
+sd 0.021, versus CV-to-public's 0.057, sd 0.018), consistent with private
+being a smaller, noisier panel, exactly as our respondent-bootstrap simulation
+anticipated. Ranking our own model progression by private score alone does
+not perfectly reproduce the CV ranking: ensemble\_v9 (1.152 CV, weakest of the
+group) edges out both set-context (1.199 private) and segment-shift pruning
+(1.199 private) at 1.197 private--but the entire spread across seven models
+spanning three CV-months of work is only 0.018 (1.197 to 1.215), well inside
+the paired-noise band this report already quantifies. We read this as
+confirmation of, not an exception to, our own thesis: at this leaderboard's
+compression, small private-rank differences among closely-matched models
+reflect sampling noise rather than genuine quality differences.
 
 ## Distribution shift and experimental blocks
 
@@ -453,6 +476,21 @@ breakthrough. The smaller private panel will be at least as
 composition-sensitive. Our best defense is respondent-grouped CV, observed
 (transferable) heterogeneity, and a diverse ensemble--not tuning to one public
 split.
+
+A final honest note on selection, made possible only after the leaderboard
+closed: reconciling every submission our team made shows one file,
+`hierarchical_pool_v18_balanced`, scored **1.194 private**--better than our
+selected final (1.199). It was submitted independently late in the
+competition and was never folded back into our own CV/verification log, so
+it was not a candidate when we chose segment-shift pruning as our final
+submission under genuine uncertainty. Per the noise analysis above, we do
+not read this as proof that model was actually better: a 0.005 private-score
+gap is well inside the paired-noise band this section already quantifies,
+and no CV or independent verification exists for that submission to check
+against. We report it because a competition report should state the real
+outcome plainly rather than omit an inconvenient one, while cautioning
+against over-interpreting a single unverified data point at a scale this
+project's own analysis shows is dominated by sampling noise.
 
 # Insights and limitations
 
