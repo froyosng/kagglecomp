@@ -131,7 +131,8 @@ CV = 5-fold respondent-grouped, seed 4821, pooled. Val = single 80/20 split, see
 | **mlogit_m8trpg: m8trp + price_gap_min/max (distance to cheapest/dearest, not just rank)** | 1.160 | **1.147** | -- | biggest single incremental gain of the session, from just 2 params |
 | ensemble_v11: 0.80 m8trpg + 0.20 xgboost | -- | 1.145 | 1.202 | best model 2026-07-26/27; gap 0.057. Superseded 2026-07-28 |
 | ensemble_v11 + 0.15 MLP (nnet, 8 hidden units, 5 seeds) | -- | 1.1438 | 1.201 | best model 2026-07-28/29/30; gap 0.0572. First non-tree ensemble member. Superseded 2026-07-30 |
-| **0.889 x (ensemble_v11+MLP) + 0.111 x set-context network** | -- | **1.1435** | **1.200** | **CURRENT BEST** (`set_context_utility_network_v14`), both CV and public. First learned choice-set-context component; gap 0.0565, in line with the established pattern |
+| 0.889 x (ensemble_v11+MLP) + 0.111 x set-context network | -- | 1.1435 | 1.200 | `set_context_utility_network_v14`, both CV and public. First learned choice-set-context component; gap 0.0565, in line with the established pattern. Superseded 2026-07-31 |
+| **Same stack, m8trpg's `In_seg3`/`In_seg5` (already-non-significant, p=0.76/0.40) dropped** | -- | **1.1433** | **1.200** | **CURRENT BEST** (`segment_shift_v15`). Motivated by a newly-confirmed structural fact: segment 6 is 27.0% of training but 0% of test; segments 3/5 are 9.4% of training but 68.8% of test. Public score identical to v14's at 3-decimal display precision (the CV gain, 0.0003, is below both Kaggle's rounding granularity and this project's own ~0.001 paired-noise floor) -- retained as best on the strength of its more rigorously validated CV, not a confirmed public improvement |
 
 Negative/null results (all real attempts, logged for the report's "alternatives
 tried" section, not dead ends to re-try):
@@ -1152,6 +1153,461 @@ redirect effort to the final report" independently.
 `set_context_utility_network_v14` (1.143533 CV / 1.200 public) remains
 final, now with an even more exhaustively closed search behind it.
 
+## Resolved: dedicated hurdle (opt-out / conditional-bundle) model -- clean, decisive reject (2026-07-31)
+A fresh adversarial-modelling pass first ran a full experiment-coverage audit
+(every mechanism family the goal brief required, cross-checked against
+actual code and result files, not just this file's summaries) before
+proposing anything new. It confirmed the existing two-head experiment
+(`R/codex_two_head_ensemble_v2.R`) only ever reweights four *already-fixed*
+component probability matrices via a convex-combination search -- no fresh
+model has ever been trained on the raw opt-out / conditional-bundle targets
+with new features. That gap is now closed, not just identified.
+
+Pre-registered (`codex_hurdle_model_preregister.md`, committed before any
+result) and implemented (`R/codex_hurdle_model.R`): a dedicated binary
+opt-out model `q(x)` (new task-difficulty/choice-set-design features --
+price spread/CV, count of attributes actually varying in the task -- plus a
+fixed-coefficient offset from v14's own frozen opt-out margin, ridge
+`glmnet`, nested lambda selection) and a dedicated 3-way conditional
+bundle-choice model `r(x)` (m8trpg's own validated feature set, refit on the
+inside-only subsample with alt 4 removed entirely), recombined as
+`P(Ch4)=q`, `P(Chj)=(1-q)r_j`. Two structural identification issues (the
+`inside x covariate` terms becoming unidentified once opt-out is removed;
+the partial-profile design's fixed "9-of-19 active attributes" becoming an
+exact linear identity in the same circumstance) and one numerical one
+(unpenalized `mlogit` MLE hit an exactly-singular Hessian on the smaller
+restricted subsample, consistent with quasi-complete separation -- fixed by
+switching `r` to `glmnet`'s stratified-Cox equivalence, ridge-regularized)
+were all caught and fixed by the smoke test before any canonical result was
+seen.
+
+**Result: the nested cross-fitted blend-weight search selected weight = 0
+against the exact frozen v14 prediction in every one of 5 outer folds across
+all 6 canonical + repeated-CV seeds (30 fits total) -- the candidate is
+numerically identical to v14, `positive_repeats = 0/6`.** Independently
+verified from the raw saved `canonical_result.rds` rather than trusted at
+face value: `q`'s calibration is sane (mean predicted opt-out probability
+0.30243 vs. actual 0.30230, matching v14's own 0.30138), and the standalone
+hurdle prediction is uniformly worse than v14 by 0.008-0.020 log loss in
+*every* individual fold, at a similar standalone magnitude to this project's
+other from-scratch estimators (the 4-way ensemble's own `glmnet`-Cox
+component scored 1.164331 alone) -- a real, moderately-competent model that
+simply is not diverse enough from the four existing components to earn any
+blend weight, unlike xgboost/shallow-MLP/set-context which are each
+individually weaker yet still earn real weight from genuine diversity. Full
+detail, including a noted floating-point wrinkle in the escalation trigger
+(harmless here since repeated CV independently confirms the reject), in
+`codex_hurdle_model_findings.md`.
+
+**Not adopted; no submission made.** This is a materially more decisive
+rejection than the two-head pooling near-miss (which had an 89.6% win rate
+and a CI only barely crossing zero) -- a third independent angle (after
+two-head pooling and the OOF residual audit) now corroborates that this
+dataset's existing four components have already captured essentially all
+the exploitable structure in the opt-out/conditional-bundle decomposition.
+`set_context_utility_network_v14` (1.143533 CV / 1.200 public) remains the
+current best model, unchanged.
+
+## Resolved: alternative probability links -- all three families decisively reject (2026-07-31)
+Second experiment of the same adversarial-modelling pass, motivated by the
+Marginal Distribution Model literature (Natarajan et al. 2009; Mishra,
+Natarajan, Padmanabhan, Teo, Li 2014, *Management Science*) as a genuinely
+different mechanism from anything tried before: instead of changing the
+*utility function* (features/interactions -- exhaustively tried), test
+whether the fixed softmax *link* (utility differences -> choice
+probabilities) is itself mis-specified, holding v14's utilities completely
+frozen. Pre-registered (`codex_alt_link_preregister.md`) and implemented
+(`R/codex_alt_link.R`) three small-parameter link families on top of v14's
+own frozen, honest, cross-fitted utilities, all ridge-penalized toward
+`theta=0` (exact softmax/identity): (1) a single global scale, kept
+specifically as a replication sanity check against the already-logged
+post-hoc temperature-sweep null; (2) scale plus a single opt-out-specific
+additive shift; (3) scale plus a shape exponent on the surprisal
+`-log(p)`, a semiparametric generalization closer to the MDM family's spirit
+than a pure temperature. Gradient-checked (analytic vs. finite-difference)
+to ~1e-9 before any real fold was fit.
+
+**All three reject decisively at the canonical stage, with 95% CIs entirely
+below zero** (not near-misses crossing zero): family 1 (replication check)
+gain -0.000531, CI [-0.000873,-0.000212], closely matching the already-known
+"identity is optimal" result and confirming the pipeline is correct; family
+2 (opt-out shift) gain -0.000777, CI [-0.001136,-0.000438]; family 3
+(shape+scale) gain -0.000738, CI [-0.001217,-0.000293]. No repeated-CV
+escalation triggered (none passed or near-missed). Full detail in
+`codex_alt_link_findings.md`.
+
+**Not adopted; no submission made.** Combined with the two already-logged
+global recalibration experiments (post-hoc temperature, covariate-indexed
+utility-scale heterogeneity), this is now four structurally different link/
+scale generalizations that all agree v14's plain softmax on its own frozen
+utilities is already at or very near a local optimum. This also materially
+raises the bar for -- and lowers the expected value of -- this session's
+third-ranked candidate (a task-content-conditioned local temperature),
+since a task-conditioned scale is a strict generalization of family 1's
+global scale and family 3 already shows added shape flexibility on top of
+scale does not help either. `set_context_utility_network_v14` (1.143533 CV /
+1.200 public) remains the current best model, unchanged.
+
+## Resolved: task-content-conditioned local temperature -- fourth link/scale generalization to decisively reject (2026-07-31)
+Third and final pre-registered candidate of the same adversarial-modelling
+pass, kept in the plan specifically to audit rather than assume it was
+closed by the alternative-link result above. Hypothesis: confidence
+(softmax temperature) should vary with observable task difficulty --
+closeness of the leading bundles' predicted probabilities (`gap_top2`),
+price coefficient of variation (`price_cv`) -- rather than being a single
+global constant or a respondent-covariate-indexed constant (both already
+rejected). Pre-registered (`codex_task_temperature_preregister.md`) and
+implemented (`R/codex_task_temperature.R`, gradient-checked to 3.5e-10
+before any real fold), a linear function of these two task-content features
+sets a per-task temperature exponent, ridge-penalized toward zero (full
+reversion to v14's plain softmax under strong shrinkage), fit by nested
+cross-validation on the canonical respondent-grouped partition.
+
+**Rejects decisively, the same pattern as every link/scale variant this
+session: canonical gain -0.000564, 95% CI [-0.000913, -0.000239], entirely
+below zero.** The fitted intercept (0.00605) is nearly identical to the
+alternative-link experiment's global-scale estimate (0.00609); both
+task-difficulty coefficients are an order of magnitude smaller and
+contribute essentially nothing -- the inner CV shrinks toward identity as
+hard as the grid allows (strongest penalty selected in 4 of 5 folds) and the
+harm persists regardless. Full detail in
+`codex_task_temperature_findings.md`.
+
+**Not adopted; no submission made.** This is now the fourth structurally
+different link/scale generalization (global temperature, covariate-indexed
+utility-scale heterogeneity, the alternative-link experiment's three
+families, and this task-conditioned version) to agree that v14's plain
+softmax is locally optimal along every direction tested, including the one
+specifically chosen for being least explored. This closes all three of this
+session's pre-registered candidates from the coverage audit; the two
+lower-priority items flagged but not pursued as full experiments (a
+nested-cross-fitted difficulty-predictability diagnostic beyond what the
+existing OOF residual audit already covers, and a representation-gap fix to
+the set-context network's pooling that would need to target a specific
+missing statistic without re-running the already-closed sequence-transformer
+rescue) remain the most plausible next leads if a session resumes this
+search. `set_context_utility_network_v14` (1.143533 CV / 1.200 public)
+remains the current best model, unchanged.
+
+## Resolved: difficulty-predictability diagnostic -- real but not exploitable (2026-07-31)
+Fourth piece of the same adversarial-modelling session, addressing the
+brief's item #4 (`R/codex_difficulty_diagnostic.R`, diagnostic only, no
+promotion gate). A nested-cross-fitted ridge regression predicting v14's
+per-row log loss from test-time-available respondent covariates and task
+design content (never the outcome) finds **real, non-flat, out-of-sample
+predictability** -- OOF R² 0.025/0.040/0.051 for total/opt-out-margin/
+conditional-bundle loss respectively, a clean monotonic decile table, a
+materially stronger result than the 2026-07-26 slice-flatness check (which
+could not have caught a multivariate combination). A critical follow-up,
+refit excluding v14's own predicted probabilities (which mechanically
+correlate with a model's own realized loss even under perfect calibration),
+confirms this is a genuine exogenous signal, not a tautology -- the
+opt-out-margin R² is unchanged (0.040) with the model's own confidence
+completely removed.
+
+**But real predictability of loss does not imply exploitable
+miscalibration**, and four independent rescaling/gating mechanisms already
+tested this session and in prior sessions (global temperature, covariate-
+indexed utility-scale heterogeneity, the alternative-link families, the
+task-content-conditioned temperature using these exact same design features,
+and the gated safe-diversity-recombination blend) all failed despite this
+now-confirmed predictability -- the coherent reading is that v14 already
+calibrates appropriately for this heterogeneity (hedges more on genuinely
+harder profiles), so the predictable variance is irreducible aleatoric
+noise. A concrete nugget: top-decile-loss respondents have a *lower* actual
+opt-out rate (12.7% vs. 30.2% population) with near-average predicted `q`
+(29.2% vs. 30.1%) -- ruling out a simple opt-out-margin bias as the driver.
+Full detail in `codex_difficulty_diagnostic_findings.md`. Closes item #4
+with a genuine test rather than an assumption; does not itself motivate a
+new rescaling attempt.
+
+## Resolved: set-context variance pooling -- screen-stage reject (2026-07-31)
+Fifth and final piece of the same adversarial-modelling session, addressing
+item #5 (representation gap in the set-context network). Direct code read
+of `set_context_net$forward()` in `R/codex_set_context_network_v2.R`
+confirmed the encoder pools each task's three inside alternatives' learned
+embeddings via mean and max only, broadcasting both to every alternative
+slot -- neither statistic preserves spread/similarity information across
+alternatives. Pre-registered (`codex_variance_pool_preregister.md`) a
+minimal, targeted addition: one more broadcast pooling statistic (per-
+embedding-coordinate variance across the three inside alternatives),
+encoder/head hyperparameters otherwise completely unchanged (152 -> 184
+head-input dims, no new layers or hidden units). Because retraining this
+`torch` network is materially more expensive than every other candidate
+this session, it was screened first (`R/codex_variance_pool_screen.R`) on
+the project's existing canonical single 80/20 split, both architectures
+fit identically, before any commitment to the full nested-CV protocol.
+
+**Screen-stage reject: the variance-pooling architecture is worse both
+standalone (1.371673 vs. 1.335116) and blended against the frozen flat
+baseline (1.157392 vs. 1.156997, gain -0.000395).** Per the pre-registered
+screen protocol, this stops here -- no canonical or repeated CV was run,
+avoiding the full 5-fold x 3-seed x 50-epoch retraining cost a promotion
+would have required. Full detail in `codex_variance_pool_findings.md`.
+
+**Not adopted.** This closes, cheaply, the representation-gap question this
+session was able to test: neither the missing spread/variance statistic
+(this experiment) nor the sequence/history dimension (already closed in the
+2026-07-31 sequence-transformer rescue) has produced an improvement when
+concretely implemented. `set_context_utility_network_v14` (1.143533 CV /
+1.200 public) remains the current best model, unchanged. This closes all
+five items of this session's adversarial-modelling brief (dedicated hurdle
+model, alternative probability links, task-content-conditioned temperature,
+difficulty-predictability diagnostic, set-context representation gap) --
+none surfaced a promotable candidate; every rejection is logged with full
+reproducible detail for the report.
+
+## Resolved: external second opinion (ChatGPT) -- one mechanism confirmed already present, one genuinely new mechanism decisively rejected (2026-07-31)
+Sixth/seventh pieces of the same session: asked a second model for a fresh
+literature pass, briefed with a condensed exhaustive "already tried" list
+(`chatgpt_fresh_ideation_brief.md`) specifically so it couldn't waste a
+suggestion on anything closed. It proposed, in order: (1) alternative-
+position ASCs, (2) noncompensatory conjunctive price-screening, (3) a
+paired-correlated-error model -- and separately judged a full Marginal
+Distribution Model implementation not worth the engineering cost (its own
+literature check found the closest historical GM-conjoint MDM benchmark,
+~1.1667, already worse than this project's 1.143533).
+
+**Candidate 1 audited, confirmed already present since day one:** `d2`/`d3`
+position dummies have been in the model since `mod2b` (2026-07-24,
+"d2~0.13, d3~0.05") and remain in v14's own logit component. The one
+untested residual -- position x task-fatigue interaction -- screened
+(`R/codex_position_fatigue_screen.R`) worse (-0.000173) despite one
+coefficient looking nominally significant, the same significance-vs-
+validation disconnect this project has hit before; not escalated to CV.
+
+**Candidate 2, audited as genuinely new, implemented, decisively rejected:**
+a 2-type conjunctive price-screening consideration-set mixture on top of
+v14's frozen predictions (`codex_consideration_set_preregister.md`,
+`R/codex_consideration_set_screen.R`), trained via the true panel
+likelihood and predicted out-of-sample using only the prior screening-type
+probability from income -- never a posterior on a held-out respondent's own
+choices. A correctness check passed and 12/12 optimizer restarts converged
+identically (no multimodality artifact), but the fitted model is decisively
+worse out of sample: screen-stage validation logloss 1.194021 vs. v14's own
+1.158825 (gain -0.035196). Rejected at the screen stage, no CV compute
+spent. The fitted threshold implies ~24% of training respondents are
+declared aggressive screeners in a pattern that does not transfer to new
+respondents -- the same failure mode already documented for mixed logit and
+latent-class models here. Full detail in
+`codex_consideration_set_findings.md`. Candidate 3 was not implemented
+(ranked lowest by the reviewing model itself, and its own flagged
+identification risk with only 3 inside alternatives is judged credible).
+
+**No submission made; no change to the standing best.**
+`set_context_utility_network_v14` (1.143533 CV / 1.200 public) remains the
+current best model. This closes the external-review round: one already-
+known mechanism reconfirmed, one genuinely new mechanism tested and
+rejected with full rigor (correctness check, multi-restart optimization,
+explicit leakage guard).
+
+## Resolved: two more mechanisms from a historical-pattern trace-back and second external review -- one near-miss, one clean reject (2026-07-31)
+Traced back exactly which historical changes drove every real improvement
+in this project (fixing wrong-linearity assumptions on variables already in
+the model; adding observed, transferable covariate interactions; adding
+choice-set structural information; ensembling genuinely different function
+classes) to pick the two remaining "still alive" buckets rather than
+retrying the two dead ones (personalization-that-can't-transfer,
+recalibration-with-nothing-to-fix) that every prior experiment today fell
+into.
+
+**Dispersion-relative price-gap features** (`codex_relative_price_gap_
+preregister.md`): `price_gap_min`/`price_gap_max` divided by the task's own
+price spread -- confirmed distinct from the already-rejected linear
+"relative price" feature (a division by a task-varying denominator, not a
+collinear linear shift). Screen +0.000261; canonical CV **near-miss**, gain
++0.000139, CI [-0.000110, 0.000385]; repeated CV (6 seeds, 30 fold-fits):
+**gain +0.0000906, CI [-0.000157, 0.000336], positive in 6/6 repeats but
+still crossing zero -- rejected**, the same diminishing-returns signature
+as most near-misses here. Detail in `codex_relative_price_gap_findings.md`.
+
+**Choice-set-dependent attribute focusing/salience** (`codex_salience_
+preregister.md`, proposed by a second ChatGPT review round after seeing the
+day's other nine results, grounded in Koszegi-Szeidl focusing theory and
+Bordalo/Gennaioli/Shleifer salience theory): a one-parameter reweighting of
+m8trpg's own fitted per-attribute coefficients by their task-specific
+cross-alternative range, `lambda=0` recovering the exact existing model.
+Screened via a coarse grid over `lambda in [-5,5]`: **the best point in the
+entire grid is exactly `lambda=0`**, with monotonic, substantial harm in
+both directions -- meets the pre-registered falsification criterion
+outright. **Rejected**, no escalation needed. Detail in
+`codex_salience_findings.md`.
+
+**Net effect: ten independent mechanisms tested and closed in this single
+session.** `set_context_utility_network_v14` (1.143533 CV / 1.200 public)
+remains the current best model, unchanged; no submission made.
+
+**Final follow-up (no-refit shrinkage diagnostic,
+`R/codex_relative_price_gap_shrinkage.R`):** tested whether the relative
+price-gap near-miss's fitted correction overshoots, by blending the
+already-cached m8trpg-alone and m8trpg+relative-gap OOF matrices at
+`alpha in {0.25,0.5,0.75,1}`, choosing `alpha` on the canonical seed only
+and confirming purely out-of-sample on the other 5 seeds. **`alpha=1` (the
+full correction) is optimal on the canonical seed -- no overshoot to
+shrink away**, so per the pre-registered rule this closes the question
+directly; the frozen-`alpha=1` result on the other 5 seeds reproduces the
+same pattern (gain +0.0000809, CI [-0.000168, 0.000327], 5/5 positive,
+still crossing zero). The relative-price-gap effect is real, directionally
+stable, already used at its optimal strength, and still too small --
+closed definitively. This ends the broad ideation phase of this session's
+adversarial-modelling round.
+
+## PROMOTED: segment-distribution shift -- targeted opt-out-margin pruning, full v14 ensemble improved (2026-07-31)
+Following the external review's Route 2 (audit the CV-to-public gap for
+support/extrapolation violations rather than proposing another model),
+found a genuinely new structural fact by direct data inspection: `segmentind`
+has a **far more extreme train/test shift than the already-known income
+shift**. Segment 6 (27.0% of the 1,135 training respondents) has **zero**
+representation among the 263 test respondents; segments 3 and 5 (9.4% of
+training combined) make up **68.8% of test**. An adversarial-validation
+classifier confirms segment alone (AUC 0.898, in-sample) dwarfs income
+alone (AUC 0.654, the previously-flagged main driver) as a train/test
+discriminator. This had never been characterized as its own structural fact
+-- the one prior mention of these exact segment counts
+(`cleaning_log.md`, 2026-07-27) was about training-set sparsity as a reason
+for caution *adding* new segment-specific terms, not about the distribution
+mismatch in terms already deployed since `mod8`.
+
+A full-data coefficient audit of `m8trpg` found a striking split: segments
+3/5's *price-sensitivity* deviations (`P_seg3`, `P_seg5`) are large,
+precise, and highly significant (p<1e-10) -- no reliability concern there.
+But their *opt-out-margin* deviations (`In_seg3`, `In_seg5`) are
+statistically indistinguishable from zero even with the full training set
+(p=0.758, p=0.404) -- and these are exactly the two segments whose
+loss-function weight explodes from ~9% (training, where CV is computed) to
+~69% (test, where the actual score is computed). The other three segments'
+`In_seg` terms are all individually significant but govern segments whose
+test share is shrinking or vanishing.
+
+**Fix: drop `In_seg3` and `In_seg5`** (already-non-significant, already-
+deployed terms; nothing else touched). Canonical respondent-grouped 5-fold
+CV: gain **+0.000504, 95% CI [0.000081, 0.000966]** on the whole population
+already (not merely a subgroup effect), amplifying monotonically to
+**+0.001777, CI [0.000389, 0.003280]** on the top-30%-test-like training
+respondents (test-likeness from the project's standard adversarial-
+validation classifier) -- exactly the dose-response pattern the mechanistic
+hypothesis predicts. **Repeated CV (6 seeds): 6/6 positive**, pooled gain
++0.000313, CI **[0.0000783, 0.000584]**, excludes zero. **Propagated
+through the full v14 ensemble** (reconstructed exactly -- verified against
+the official OOF cache to 3.7e-9 before trusting anything -- using the same
+per-fold set-context weights `crossfit_blend()` actually selected, not the
+single fixed 0.111 used only in the separate full-data submission build):
+**canonical CV improves 1.143533 -> 1.143255**, 6/6 seeds positive, pooled
+gain +0.0001776, 95% CI **[0.0000441, 0.0003292]**, win rate 99.6%.
+**PROMOTE.**
+
+This is the first candidate this session (spanning the original five-item
+coverage audit, three ChatGPT-proposed mechanisms, and two historical-
+pattern-trace candidates -- ten rejections total) to clear every
+established promotion gate at the full-ensemble level. Full detail,
+including the complete coefficient table and per-seed numbers, in
+`codex_segment_shift_findings.md`.
+
+**Full-data build completed** (`R/codex_segment_shift_full_build.R`, run
+twice per protocol): reused the exact already-deployed xgboost, shallow
+MLP, and set-context test predictions unchanged (backed out algebraically
+from already-published submission CSVs rather than refitting xgboost, to
+avoid any risk of an unseeded refit landing on different predictions);
+refit only the pruned mlogit on all 1,135 training respondents. A
+correctness check first confirmed that reconstructing the *original*
+(unpruned) pipeline from these pieces reproduces the deployed v14
+submission to `1.055e-15` -- essentially exact. The two-independent-run
+reproducibility check passed with **zero** difference (mlogit's
+Newton-Raphson fit is deterministic, as expected). Diagnostics of the
+pruned vs. original candidate: mean absolute probability change 0.00128,
+max change 0.00970, argmax-flip rate 0.46%, correlation 0.999922 -- a
+small, bounded, well-behaved change, consistent with the "ensemble-class
+refinements transfer reliably" pattern this project has repeatedly
+confirmed (as opposed to the large, unbounded changes that transferred
+badly: `triple_mlp_v13`'s max deviation was 0.61 by comparison).
+
+`submission_segment_shift_v15_candidate.csv` written (MD5
+`a3ec83cf7d37cf40eae0fe9135baa858`).
+
+**Submitted 2026-07-31: public 1.200000** -- identical at 3-decimal display
+precision to `set_context_utility_network_v14`'s own public score. The
+CV-predicted gain (0.000278 at the full-ensemble level) is well below both
+Kaggle's displayed rounding granularity and this project's own quantified
+paired-comparison noise floor (~0.001), so an identical displayed score
+neither confirms nor refutes the CV-predicted improvement -- consistent
+with, not contradicting, the v12-to-v14 precedent (CV gain 0.00026, public
+moved by exactly one rounding-boundary digit). Given `segment_shift_v15`'s
+strictly more rigorously validated CV (1.143255 vs. v14's 1.143533, with
+the added structural-shift rationale), it is retained as the new standing
+best; `set_context_utility_network_v14` (1.143533 CV / 1.200 public) is
+kept as the equally-publicly-scored fallback reference. Logged in
+`submissions_log.csv` as `segment_shift_v15`.
+
+## Resolved: attribute semantics audit -- one candidate structurally closed, two flagged as semantic-mapping-dependent (2026-07-31)
+A third external-review round found (via a paperzz.com-hosted trace of
+Mishra et al.'s Management Science paper, apparently the same or a closely
+related GM conjoint survey instrument) that this dataset's attribute codes
+carry real semantics: level 0 means "not shown in this partial profile,"
+while for every attribute except `CC` the final positive level means
+"shown, explicitly declared absent." **Independently verified before
+building anything**, without trusting the source's code-to-feature-name
+mapping: checked whether `m8trpg`'s own fitted level-coefficients break a
+smooth trend at the top level. **18 of 19 attributes show exactly this
+break** (e.g. `BU`: 0.090, 0.237, 0.206, 0.309, 0.340, **-0.093**), and
+**the one specified exception, `CC`, is exactly the one attribute that
+does not break** (0.249, 0.200, 0.267) -- a specific, falsifiable
+prediction that panned out from data already on disk, meaningfully raising
+confidence in the source's other claims (though the specific
+code-to-feature mapping, e.g. `NV` = Night Vision, remains a single
+external attribution this project cannot independently confirm).
+
+Of the three candidates proposed (semantically-matched taste
+heterogeneity; partial-profile alignability weighting; feature-family
+saturation), **alignability was prioritized first specifically because it
+needs only the already-established "level 0 = not shown" fact, not the
+disputed code-to-feature mapping**. Screened
+(`R/codex_alignability_screen.R`): **the target phenomenon does not exist
+in this data.** Checked directly: across all 21,565 training tasks x 19
+attributes (409,735 pairs), the count of inside alternatives displaying a
+given attribute is **exclusively 0 or 3 -- never 1, never 2**. The
+partial-profile mechanism decides attribute activity at the *task* level
+(shared identically across all three alternatives), not the alternative
+level -- a stronger, more precise version of the already-known "9 of 19
+active per alternative" constant. The "uniquely displayed, non-alignable"
+state this candidate modeled cannot occur, so the gamma grid was exactly
+flat (0.000000 at every point) -- closed by design, not a failed test.
+Full detail in `codex_alignability_findings.md`.
+
+Separately, a check of the historical 195-term automated `glmnet`
+interaction search (2026-07-25) found it selected `KA x nighta` (Knee Air
+Bags), not `NV x nighta` (the semantically "obvious" night-driving
+pairing) -- real, though not fully decisive (different functional form:
+raw attribute level vs. fitted part-worth), evidence tempering the prior
+on the semantically-matched-taste-heterogeneity candidate specifically.
+**Semantic-taste-heterogeneity candidate subsequently tested** (three
+pairings, each screened against a mismatched placebo per the
+pre-registration): night% x Night Vision **failed its own placebo**
+outright (a second independent strike against this specific pairing,
+alongside the 195-term search's `KA x nighta` finding); miles x
+(Cruise Control + Lane Departure) beat its placebo only ambiguously (~2x,
+placebo alone capturing over half the effect) and was not pursued; parking
+situation x Parallel Park Aids passed its placebo cleanly and was escalated
+to canonical CV, where nested gamma selection converged to a much smaller,
+opposite-signed value in every fold than the single-split screen preferred
+(the classic screen-overfitting signature) -- pooled gain +0.0000126, CI
+[-0.0000994, 0.0001254], **win rate 58.8%** (barely above chance).
+Deliberately not escalated to the ~120-fit repeated-CV confirmation this
+would formally require, given how weak and near-chance the signal already
+is. Not adopted. Full detail in `codex_semantic_taste_findings.md`.
+**Feature-family saturation (Candidate 3) subsequently tested and closed**
+(`R/codex_saturation_screen.R`): a one-parameter within-alternative
+redundancy count over 5 fixed functional families gave gain +0.000317, but
+a random-family-reassignment placebo (same group sizes, fixed seed) gave
++0.000238 -- only a ~1.3x margin, far weaker discrimination than Candidate
+1's cleanest pairing. Per the pre-registered falsification rule, this
+closes the candidate: a quadratic co-occurrence-count term absorbs generic
+flexibility regardless of whether the grouping is functionally meaningful.
+Not escalated to CV. **This closes all three candidates from the third
+external-review round**, and with them every candidate proposed across
+three successive external-review rounds plus this session's own coverage
+audit and historical-pattern trace-back. `segment_shift_v15` (1.143255 CV,
+1.200 public) remains the current best model.
+
 ## Team / git state
 - Working branch: `zhenhao` (this repo's primary author, GitHub `froyosng`).
   Team: Imelda Lee, Woon Zee Ning ("Zeening"), Clarence Elvareta (she/her),
@@ -1216,51 +1672,51 @@ final, now with an even more exhaustively closed search behind it.
   scripts and write-up are kept for reproducibility.
 
 ## Next steps
-1. **`competition_report.qmd` needs another headline update**: best model is
-   now `set_context_utility_network_v14` (1.143533 CV / 1.200 public),
-   superseding the `ensemble_v11 + MLP` writeup from 2026-07-29. Needs: the
-   new formula/weight (0.889 x prior best + 0.111 x set-context network), a
-   description of the set-context architecture, the repeated-CV-strengthens-
-   not-weakens result (unusual, worth highlighting), the full-data build's
-   two-run reproducibility gate, and the updated CV-to-public gap table/
-   discussion (this is now the SECOND CV-predicted-direction confirmation on
-   the public LB, strengthening that argument). Re-render to PDF (Quarto +
-   TinyTeX now installed in this environment from the prior render -- see
-   `quarto render competition_report.qmd --to pdf` with the RStudio-bundled
-   quarto on PATH) and recheck the 8-page limit after the addition.
-2. `submission_triple_mlp_v13.csv` (2026-07-29, public 1.210, worse) and
-   `submission_set_context_v14_candidate.csv` (2026-07-30, public **1.200**,
-   new best) are both logged. No other submission slot currently has a
-   queued candidate; only 2 Kaggle submissions/day (shared team-wide) -- keep
-   requiring a CI that clearly excludes zero before spending one. Clarence's
-   model still needs a fixed validation split before it's worth trusting.
-3. **An external review (2026-07-30) proposed "test a genuinely new
-   structural model: panel mixed logit or latent-class logit" as a next
-   step -- this is NOT new.** Both have been tried multiple times and
-   rejected: frequentist mixed logit (full and price-only), a Bayesian
-   hierarchical mixed logit (deliberately re-tested under a totally
-   different estimation philosophy specifically to rule out an estimation
-   artifact -- same rejection), latent-class logit (twice), and a
-   price-scale latent class (real, stable classes, but redundant with
-   existing continuous heterogeneity). Do not re-run any of these without a
-   materially different angle; if someone proposes this again, point them
-   at this file's "Model progression" negative-results list and the
-   Bayesian-mixed-logit "Resolved" section first.
-4. The same review's other suggestion -- an OOF residual-correlation check
-   to test whether different models fail on the same rows (representation
-   limitation) vs. different rows (exploitable complementary signal) -- was
-   run directly (own analysis, not delegated): m8trpg's worst-decile rows
-   are also dramatically worse than average for every other cached model
-   (e.g. xgboost 1.18 overall vs. 2.17 on those rows; MLP 1.19 vs. 2.44).
-   Real evidence for a shared, not per-model, error ceiling -- consistent
-   with the project's broader "near the practical floor" conclusion.
-5. As of 2026-07-30, no untested candidate has a respondent-bootstrap CI
-   that cleanly excludes zero against the NEW current best
-   (`set_context_utility_network_v14`) -- everything logged so far was
-   measured against the prior best. The four-parallel-experiment wave, the
-   three-more-experiments wave, and the SVM-diversity result were all
-   measured before this promotion and should be considered closed regardless
-   (their rejections don't depend on which model is "current best" by this
-   small a margin). If a genuinely new idea surfaces, exhaust it via
-   respondent-grouped CV before assuming it's real, and keep the same bar:
-   ordinary 95% CI must exclude zero, not just a positive point estimate.
+1. **`competition_report.qmd` needs a headline update to `segment_shift_v15`**
+   (1.143255 CV / 1.200 public), the new standing best, superseding the
+   `set_context_utility_network_v14` writeup. Needs: the `In_seg3`/`In_seg5`
+   pruning story (the segment train/test shift finding, more extreme than
+   the already-reported income shift -- segment 6 is 27.0% of training/0% of
+   test, segments 3+5 are 9.4% of training/68.8% of test), the dose-response
+   confirmation on test-like respondents, the repeated-CV and full-ensemble
+   propagation numbers, and a note that its public score is displayed
+   identical to v14's (3-decimal rounding, gain below Kaggle's granularity)
+   -- retained on CV rigor, not a confirmed public delta. Also needs the
+   closure summary of the adversarial-modelling/external-review round below
+   for the "alternatives tried" section. Re-render to PDF and recheck the
+   8-page limit after the addition.
+2. **Submission budget**: `submission_set_context_v14_candidate.csv`
+   (2026-07-30, public 1.200), `zeening_rf_xgb_ensemble` (2026-07-31, public
+   1.224, confirmed leakage), and `submission_segment_shift_v15_candidate.csv`
+   (2026-07-31, public 1.200) are all logged and submitted. Per the user
+   (2026-07-31), all submissions for this project have now been made --
+   no further Kaggle slots are being planned. Any further experiments from
+   here are for CV/report completeness only, not for another submission.
+3. Do not re-litigate closed structural-model territory (panel mixed logit,
+   latent-class logit, hierarchical Bayesian mixed logit) -- see the "Model
+   progression" negative-results list and relevant "Resolved" sections if
+   someone proposes this again.
+4. **2026-07-31 adversarial-modelling + external-review round is fully
+   closed (eleven mechanisms tested, one promoted).** In order: a coverage
+   audit closed the two-head/hurdle-model gap (reject); three link/scale
+   generalizations (alternative links x3, task-content-conditioned
+   temperature) all rejected decisively, agreeing v14's plain softmax is
+   locally optimal; a difficulty-predictability diagnostic found real but
+   non-exploitable loss predictability; a set-context variance-pooling
+   architecture change screen-rejected; three rounds of external (ChatGPT)
+   review proposed six more candidates (position ASCs -- already present;
+   position x fatigue interaction; consideration-set price-screening;
+   dispersion-relative price-gap; salience-weighted attributes; and, from a
+   third round citing an external source on attribute semantics,
+   alignability weighting, semantic-taste heterogeneity, and feature-family
+   saturation) -- all rejected, several via a placebo/falsification design
+   that is now the template for future speculative-feature checks. The one
+   promotion, `segment_shift_v15`, came not from a new model but from a
+   direct data/coefficient audit exposing a training/test weighting
+   mismatch on two already-deployed, already-non-significant parameters --
+   worth remembering as a search strategy if more time becomes available
+   (audit existing deployed parameters against known distribution shift
+   before proposing new mechanisms). As of this writing, no further
+   untested candidate is queued; the search is exhausted across every
+   mechanism family this project's own retrospective and three rounds of
+   external review could generate.
