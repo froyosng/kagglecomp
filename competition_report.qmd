@@ -17,7 +17,7 @@ format:
     fontsize: 9.5pt
     number-sections: true
     colorlinks: true
-    keep-tex: false
+    keep-tex: true
 header-includes:
   - \usepackage{booktabs}
   - \usepackage{array}
