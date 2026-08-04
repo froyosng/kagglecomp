@@ -88,7 +88,7 @@ cross-validation) strengthened the signal rather than weakening it--the
 reverse of this project's usual near-miss pattern--and cleared our
 pre-stated significance bar. This is the second refinement, out of many
 dozens tested after ensemble\_v11, whose public-leaderboard result was
-checked against its CV-predicted direction and matched (Section 4).
+checked against its CV-predicted direction and matched (Section 3.3).
 
 A final refinement, **segment-shift pruning**, then improved
 `m8trpg` itself. A structural audit (Section 3) found that two of its
@@ -225,7 +225,8 @@ the canonical five-fold harness.
 | m8trpg | Add price-gap magnitudes | 1.1470 (CV) | 1.213 |
 | ensemble_v11 | 80% m8trpg + 20% xgboost | 1.1451 (CV) | 1.202 |
 | ensemble_v11+MLP | +15% feed-forward net | 1.1438 (CV) | 1.201 |
-| **+ set-context network** | **+11% set-pooling net** | **1.1435 (CV)** | **1.200** |
+| + set-context network | +11% set-pooling net | 1.1435 (CV) | 1.200 |
+| **+ segment-shift pruning (final)** | **Drop 2 unreliable segment terms** | **1.1433 (CV)** | **1.200 / 1.199 private** |
 
 : Main model progression. Lower log loss is better. {#tbl-models}
 
@@ -558,7 +559,7 @@ tasks contribute 21.4% of total loss, rather than dominating it. A flexible
 xgboost model also fails to uncover a large omitted nonlinear signal. These
 checks support--but cannot prove--that 1.143--1.145 CV is near the practical
 floor using the observed variables, a conclusion reinforced by an unusually
-large and diverse set of subsequent negative results (Section 3): alternative
+large and diverse set of subsequent negative results (Section 2): alternative
 choice structures, distribution-shift correction by reweighting and by
 retraining, higher-order interactions, seed-bagging and cross-fitted shrinkage
 in both directions, an exact random-utility-consistent gradient-boosting
