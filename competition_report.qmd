@@ -358,23 +358,50 @@ fixed correction to CV.
 
 Now that the private leaderboard is visible, we can check this directly rather
 than only simulate it. Across 18 team submissions with both scores recorded,
-public and private log loss correlate at **r=0.979** (Spearman 0.961); private
-was on average 0.004 *better* than public (sd 0.005, max absolute difference
-0.013), so the public leaderboard was, in practice, an unbiased and low-noise
-proxy for private in this competition--reassuring given we could not validate
-against it directly beforehand. CV predicted private slightly less tightly
-than it predicted public (r=0.787 vs. 0.845; mean CV-to-private gap 0.052,
-sd 0.021, versus CV-to-public's 0.057, sd 0.018), consistent with private
-being a smaller, noisier panel, exactly as our respondent-bootstrap simulation
-anticipated. Ranking our own model progression by private score alone does
-not perfectly reproduce the CV ranking: ensemble\_v9 (1.152 CV, weakest of the
-group) edges out both set-context (1.199 private) and segment-shift pruning
-(1.199 private) at 1.197 private--but the entire spread across seven models
-spanning three CV-months of work is only 0.018 (1.197 to 1.215), well inside
-the paired-noise band this report already quantifies. We read this as
-confirmation of, not an exception to, our own thesis: at this leaderboard's
-compression, small private-rank differences among closely-matched models
-reflect sampling noise rather than genuine quality differences.
+public and private log loss correlate at **r=0.979**; private was on average
+0.004 *better* than public (sd 0.005, max difference 0.013)--the public
+leaderboard was, in practice, an unbiased, low-noise proxy for private here.
+CV predicted private slightly less tightly than public (r=0.787 vs. 0.845;
+mean gap 0.052 vs. 0.057), consistent with private being a smaller, noisier
+panel, as our bootstrap simulation anticipated. Ranking our own progression by
+private score alone does not perfectly reproduce the CV ranking--ensemble\_v9
+(1.152 CV, weakest of the group) edges out both set-context and
+segment-shift pruning (1.199 private each) at 1.197--but the spread across
+seven models is only 0.018, well inside the paired-noise band this report
+already quantifies: confirmation of, not an exception to, our own thesis that
+small private-rank differences here reflect noise, not quality.
+
+## Team submissions
+
+For completeness, every teammate's independently submitted model is listed
+below, code-reviewed for validation soundness, not only the zhenhao-branch
+progression of Section 2.
+
+| Model | CV | Public | Private | Validation |
+|---|---|---|---|---|
+| Zeening: RF, grid-searched (`rf_gridsearch`) | 1.162 | 1.259 | 1.253 | row-level split--**leaky** |
+| Zeening: RF+XGB+glmnet blend (`019_blended.R`) | -- | 1.216 | 1.226 | respondent-grouped--sound |
+| Imelda: 3-way MNL ensemble | 1.228 | 1.263 | 1.254 | respondent-grouped--sound |
+| Imelda: MNL + xgboost | 1.186 | 1.255 | 1.247 | respondent-grouped--sound |
+| Imelda: MNL + covariate interactions | -- | 1.249 | 1.245 | respondent-grouped--sound |
+| Imelda: as above, blended toward uniform | 1.203 | 1.245 | 1.241 | respondent-grouped--sound |
+| Clarence: xgboost (task-based split) | -- | 1.221 | 1.216 | task-based split--**leaky** |
+| Clarence: ensemble, honest re-weighting | 1.165 | 1.224 | 1.219 | respondent-grouped--sound (our fix) |
+
+"--" marks a CV never captured. Two submissions were leaky at build time
+(Zeening's first: random row split; Clarence's: task-number split, not
+respondent) and had no trustworthy internal CV as a result; both were
+later fixed--we rebuilt Clarence's ensemble with honest fold-cross-fitted
+weights, and Zeening independently corrected her own methodology, which we
+verified implements respondent-grouped CV throughout. Every
+properly-validated teammate submission (five of eight) landed in a tight
+1.19--1.26 band on both leaderboards with mlogit-family-sized gaps,
+reinforcing that respondent-grouped validation, not model family or
+author, is what separates a trustworthy estimate from a misleading one
+here. One further submission, `hierarchical_pool_v18_balanced` (public
+1.200, private **1.194**, better than every model above), could not be
+traced to any script despite an exhaustive git-history search and is
+reported without further interpretation.
 
 ## Distribution shift and experimental blocks
 
@@ -409,12 +436,11 @@ while their price-sensitivity counterparts are highly significant
 (p<1e-10)--two already-weak, already-deployed parameters whose
 loss-function weight explodes roughly sevenfold between training and test.
 Dropping only these two terms improved respondent-grouped CV on the whole
-population (not merely a subgroup), amplifying monotonically on the
-30% of training respondents most similar to test, and survived repeated
-cross-validation at the full-ensemble level (Section 2). This is the only
-case in the project where auditing an already-deployed parameter against a
-known distribution shift, rather than adding a new mechanism, produced a
-promotable improvement.
+population (not merely a subgroup), amplified monotonically on the 30% of
+training respondents most similar to test, and survived repeated CV at the
+full-ensemble level (Section 2)--the only case here where auditing an
+already-deployed parameter against a known shift, not a new mechanism,
+produced a promotable improvement.
 
 The conjoint experiment is also heavily blocked: each task position draws from
 about 296 exact designs, seen by 3.8 respondents on average, and **98.5%**
@@ -494,19 +520,12 @@ composition-sensitive. Our best defense is respondent-grouped CV, observed
 split.
 
 A final honest note on selection, made possible only after the leaderboard
-closed: reconciling every submission our team made shows one file,
-`hierarchical_pool_v18_balanced`, scored **1.194 private**--better than our
-selected final (1.199). It was submitted independently late in the
-competition and was never folded back into our own CV/verification log, so
-it was not a candidate when we chose segment-shift pruning as our final
-submission under genuine uncertainty. Per the noise analysis above, we do
-not read this as proof that model was actually better: a 0.005 private-score
-gap is well inside the paired-noise band this section already quantifies,
-and no CV or independent verification exists for that submission to check
-against. We report it because a competition report should state the real
-outcome plainly rather than omit an inconvenient one, while cautioning
-against over-interpreting a single unverified data point at a scale this
-project's own analysis shows is dominated by sampling noise.
+closed: one untracked submission scored better privately than our selected
+final (Section 3, Team submissions)--never a candidate at selection time,
+and, per the noise analysis above, not read as proof of a better model
+given the size of the gap relative to this section's own quantified noise
+band. We report it because a competition report should state the real
+outcome plainly rather than omit an inconvenient one.
 
 # Insights and limitations
 
@@ -574,14 +593,11 @@ distribution shift.
 
 Limitations remain. Stated choices contain unobserved taste and within-person
 inconsistency; train and test respondents differ measurably; absolute CV
-log-loss uncertainty is about 0.01 even though paired model comparisons are
-much tighter; and the private split is both unseen and smaller than the public
-split. Calibration and subgroup checks are descriptive rather than guarantees
-under shift. Finally, design-cell shrinkage and both scoped and price-scale
-latent classes were necessarily finite specifications, and the tested ranking,
-regularization, reweighting, and interaction variants do not exhaust all
-possible specifications or richer externally observed covariates. Given the
-two-submission daily limit, however, unvalidated leaderboard probing would be
-less defensible than retaining the CV-selected ensemble.
+log-loss uncertainty is about 0.01 even though paired comparisons are much
+tighter; and the private split, though now scored, was smaller and noisier
+than the public one throughout model selection. Calibration and subgroup
+checks are descriptive, not guarantees under shift. Design-cell shrinkage,
+latent classes, and the tested ranking/regularization/reweighting/interaction
+variants do not exhaust all possible specifications or richer covariates.
 
 # References

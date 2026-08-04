@@ -1651,6 +1651,23 @@ audit and historical-pattern trace-back. `segment_shift_v15` (1.143255 CV,
   submission, `submission_clarence_honest_ensemble.csv` (below). There is no
   evidence this Zeening script was ever submitted. See submissions_log.csv
   (`zeening_rf_xgb_ensemble`) for the corrected row.
+- **Zeening's own progression continued well past what this log had tracked,
+  and by her later work she fixed the leakage bug herself.** Found
+  2026-08-04 when checking her branch directly for anything she hadn't
+  reported: her own `submissions_log.csv` on `origin/zeening` explicitly
+  documents the root cause of the "1.02" numbers -- `012_rf_xgb`'s notes say
+  "XGBoost achieved a strong internal CV score (1.02581) but a very poor OOF
+  score (1.87752), indicating a likely row-shuffling or matrix mismatch in
+  the OOF generation loop." Her final submitted model,
+  `notebooks/019_blended.R` (RF + XGBoost + elastic-net multinomial logit,
+  submitted as `submission_019_shifted_grid_blend.csv`, public 1.216 /
+  private 1.226), was code-reviewed directly and confirmed to implement
+  respondent-grouped 5-fold CV throughout tuning, OOF blend-weight
+  selection, and final reporting -- the exact canonical pattern this
+  project uses, and a genuine fix, not a relabeling. See
+  submissions_log.csv (`zeening_shifted_grid_blend_019`) for full detail.
+  This is worth remembering for the team report: her methodology
+  demonstrably improved over the course of the project.
 - **Honest rebuild of Clarence's ensemble, submitted 2026-07-31: public
   1.224, private 1.219** (Kaggle label "clarence latest submission"). Built
   earlier this project to fix a weight-selection bias in her original

@@ -3279,3 +3279,39 @@ candidate proposed across three successive rounds of external review, plus
 the session's own coverage audit and historical-pattern trace-back, has
 now been tested to the same standard. `segment_shift_v15` (1.143255 CV,
 1.200 public) remains the current best model, unchanged.
+
+## 2026-08-04: full teammate-submission reconciliation -- three "unverified provenance" gaps resolved
+
+The user asked for full reporting of every submission, including
+teammates', and to check for any of their results not yet relayed. Checked
+each teammate's branch directly (`origin/zeening`, `origin/imelda`,
+`origin/clarence`) rather than relying only on what had been reported in
+conversation. Found source code for three of the four submissions
+previously logged as "unverified provenance":
+
+- `mnl_covar` / `mnl_covar_blend` are Imelda's (`origin/imelda`,
+  `notebooks/mnl_covariate_interactions.Rmd` and `blend_sweep.Rmd`): a
+  factors-MNL with Price x (income/age/miles/night/segment) interactions,
+  validated on 20-100 independent respondent-grouped splits -- sound
+  methodology, matching her earlier `mnl_xgb` model. The blended version
+  (lambda=0.08 toward uniform) improved both mean and sd in her own
+  100-seed sweep, and this held up on the real Kaggle result too (both
+  public and private improved, and the gap stayed tight).
+- `shifted_grid_blend_019` is Zeening's (`origin/zeening`,
+  `notebooks/019_blended.R`): an RF+XGBoost+glmnet blend. Code review
+  confirmed respondent-grouped CV throughout tuning, OOF blend selection,
+  and reporting -- unlike her earlier `012_rf_xgb`/`013_rf_xgb_updated`
+  scripts, whose OWN commit notes admit "a likely row-shuffling or matrix
+  mismatch in the OOF generation loop" produced the suspicious ~1.02
+  numbers flagged earlier this project. She fixed it by this later script.
+- `hierarchical_pool_v18_balanced` remains genuinely unresolved: an
+  exhaustive search (`git rev-list --all` across every commit reachable
+  from any branch, past or present) found no file or commit matching this
+  name anywhere. It is not on any teammate's branch. Best guess unchanged:
+  generated and submitted independently (by Codex or the user) without
+  ever being committed anywhere.
+
+All three resolved submissions were re-logged in submissions_log.csv with
+their real methodology (replacing the earlier placeholder rows), and the
+report was updated to name every team member's submitted models
+explicitly rather than only the zhenhao-branch progression.
