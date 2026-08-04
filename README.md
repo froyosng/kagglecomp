@@ -17,17 +17,19 @@ Each observation contains four alternative safety-feature bundles, with exactly 
 
 ## Current status
 
-Best model, both by CV and public leaderboard: an 80/20 ensemble of a conditional
-logit (dummy-coded attributes, Price recoded as a 12-level factor instead of linear,
-price/opt-out heterogeneity by covariates/segment/task/region/parking, plus
-choice-set context effects -- is this alternative the cheapest/dearest in its task,
-and by how much) with an XGBoost multiclass model. CV log loss **1.145094**, public
-leaderboard **1.202** (`submission_ensemble_v11_pricegap.csv`, submitted 2026-07-26).
-Note: keep the xgboost blend -- tested dropping it (standalone logit, no ensemble)
-and it made the public score WORSE (1.213, gap 0.066, the largest in the project),
-not better, refuting the "ensemble adds overfitting" hypothesis. See
-`cleaning_log.md` / `submissions_log.csv` for the full discussion, relevant for the
-report's public-vs-private section. Full model history, findings, and current next
+**The competition has closed (1 Aug 2026) and the private leaderboard is visible.
+The report is due separately, 10 Aug 2026, 12:00 PM SGT.**
+
+Final selected submission: `segment_shift_v15` -- the ensemble_v11+MLP+set-context
+network stack (conditional logit with dummy-coded attributes, Price as a 12-level
+factor, covariate/segment/task/region/parking heterogeneity, choice-set context
+effects, blended with XGBoost, a shallow MLP, and a set-context neural network),
+with two structurally unreliable market-segment terms (`In_seg3`, `In_seg5`)
+pruned from the logit component after a segment train/test distribution-shift
+audit. CV log loss **1.143255**, public leaderboard **1.200**, private
+leaderboard **1.199** (`submission_segment_shift_v15_candidate.csv`, submitted
+2026-07-31). See `cleaning_log.md` / `submissions_log.csv` for the full discussion,
+relevant for the report's public-vs-private section. Full model history, findings, and current next
 steps live in
 [`AGENTS.md`](AGENTS.md) and [`cleaning_log.md`](cleaning_log.md) -- read those first
 before starting new work. Every model tried (submitted or not) is tracked with its
