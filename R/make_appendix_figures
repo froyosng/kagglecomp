@@ -1,0 +1,283 @@
+# =============================================================================
+# make_appendix_figures.R
+# Generates the four appendix figures for the competition report:
+#   1. price_curve.png        - saturated price-level coefficients (final pruned mlogit)
+#   2. coef_interactions.png  - price/inside x covariate interactions with 95% CIs
+#   3. xgb_importance.png      - gain-based xgboost importance (deployed config, refit)
+#   4. cross_model.png         - features both models rank highly (agreement)
+#
+# Run ONCE from the project root (the folder containing "csv files/" and "R/"):
+#   Rscript R/make_appendix_figures.R
+#
+# Produces PNGs in figures/. Re-run only if the final model changes; the .qmd
+# just displays these images, so report renders stay fast.
+# =============================================================================
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(mlogit)
+  library(dfidx)
+  library(xgboost)
+})
+
+dir.create("figures", showWarnings = FALSE)
+
+# -----------------------------------------------------------------------------
+# Shared feature construction -- lifted verbatim from the final pruned-model
+# build (codex_segment_shift_full_build.R) so the fitted model here is the
+# SAME specification as the deployed final model, with In_seg3 and In_seg5
+# dropped.
+# -----------------------------------------------------------------------------
+attrs <- c("CC","GN","NS","BU","FA","LD","BZ","FC","FP","RP",
+           "PP","KA","SC","TS","NV","MA","LB","AF","HU")
+scaler_vars <- c("incomea","agea","milesa","nighta","genderind","Urbind","educind")
+
+to_long <- function(wide) {
+  pattern <- paste0("^(", paste(c(attrs, "Price", "Ch"), collapse = "|"), ")([1-4])$")
+  fixed_names <- names(wide)[!grepl(pattern, names(wide))]
+  parts <- lapply(1:4, function(alternative) {
+    piece <- wide[, fixed_names, drop = FALSE]
+    for (variable in c(attrs, "Price", "Ch")) piece[[variable]] <- wide[[paste0(variable, alternative)]]
+    piece$alt <- alternative
+    piece$chosen <- as.integer(piece$Ch == 1)
+    piece$chid <- paste(wide$Case, wide$Task, sep = "_")
+    piece
+  })
+  output <- do.call(rbind, parts)
+  output[order(output$No, output$alt), , drop = FALSE]
+}
+
+make_features <- function(df, ctr, scl) {
+  df <- as.data.frame(df)
+  z <- sweep(sweep(df[scaler_vars], 2, ctr, "-"), 2, scl, "/")
+  df$inside <- as.integer(df$alt != 4)
+  df$Price_num <- as.numeric(df$Price)
+  for (k in 2:12) df[[paste0("Pr_lvl", k)]] <- as.integer(df$Price_num == k)
+  df$d2 <- as.integer(df$alt == 2)
+  df$d3 <- as.integer(df$alt == 3)
+  df$Task_c <- (as.numeric(df$Task) - 10) / 9
+  df$P_income <- df$Price_num * z$incomea
+  df$P_age <- df$Price_num * z$agea
+  df$P_miles <- df$Price_num * z$milesa
+  df$P_night <- df$Price_num * z$nighta
+  df$In_income <- df$inside * z$incomea
+  df$In_age <- df$inside * z$agea
+  df$In_miles <- df$inside * z$milesa
+  df$In_night <- df$inside * z$nighta
+  df$In_gender <- df$inside * z$genderind
+  df$In_urb <- df$inside * z$Urbind
+  df$In_educ <- df$inside * z$educind
+  for (s in 2:6) {
+    df[[paste0("P_seg", s)]] <- df$Price_num * (df$segmentind == s)
+    df[[paste0("In_seg", s)]] <- df$inside * (df$segmentind == s)
+  }
+  df$P_task <- df$Price_num * df$Task_c
+  df$In_task <- df$inside * df$Task_c
+  for (s in 2:5) {
+    df[[paste0("P_region", s)]] <- df$Price_num * (df$regionind == s)
+    df[[paste0("In_region", s)]] <- df$inside * (df$regionind == s)
+    df[[paste0("P_ppark", s)]] <- df$Price_num * (df$pparkind == s)
+    df[[paste0("In_ppark", s)]] <- df$inside * (df$pparkind == s)
+  }
+  df
+}
+
+# Pruned interaction set: In_seg3 and In_seg5 dropped (the final model).
+attr_terms <- paste0("factor(", attrs, ")")
+price_terms <- paste0("Pr_lvl", 2:12)
+int_terms_pruned <- c(
+  "P_income", "P_age", "P_miles", "P_night",
+  "In_income", "In_age", "In_miles", "In_night",
+  "In_gender", "In_urb", "In_educ",
+  paste0("P_seg", 2:6), "In_seg2", "In_seg4", "In_seg6",
+  "P_task", "In_task",
+  paste0("P_region", 2:5), paste0("In_region", 2:5),
+  paste0("P_ppark", 2:5), paste0("In_ppark", 2:5)
+)
+fml_pruned <- as.formula(paste(
+  "chosen ~", paste(c(attr_terms, price_terms, "d2", "d3", int_terms_pruned), collapse = " + "), "| 0"
+))
+
+# -----------------------------------------------------------------------------
+# Fit the final pruned mlogit on all training respondents
+# -----------------------------------------------------------------------------
+train <- read.csv(file.path("csv files", "train.csv"))
+train <- train[order(train$No), , drop = FALSE]
+rownames(train) <- NULL
+
+train_long <- to_long(train)
+ctr <- sapply(train_long[scaler_vars], mean, na.rm = TRUE)
+scl <- sapply(train_long[scaler_vars], sd, na.rm = TRUE)
+scl[scl == 0] <- 1
+train_feat <- make_features(train_long, ctr, scl)
+mdat_tr <- dfidx(train_feat, idx = list(c("chid", "Case"), "alt"), choice = "chosen")
+
+cat("Fitting final pruned mlogit for figures...\n")
+pruned_model <- mlogit(fml_pruned, data = mdat_tr)
+
+co <- summary(pruned_model)$CoefTable
+coef_df <- data.frame(
+  term = rownames(co),
+  estimate = co[, "Estimate"],
+  se = co[, "Std. Error"],
+  p = co[, "Pr(>|z|)"],
+  row.names = NULL
+)
+coef_df$lo <- coef_df$estimate - 1.96 * coef_df$se
+coef_df$hi <- coef_df$estimate + 1.96 * coef_df$se
+
+# =============================================================================
+# FIGURE 1: Saturated price-level curve
+# =============================================================================
+price_curve <- coef_df %>%
+  filter(grepl("^Pr_lvl", term)) %>%
+  mutate(level = as.integer(gsub("Pr_lvl", "", term))) %>%
+  arrange(level)
+
+# Level 1 is the omitted reference (coefficient 0)
+price_curve <- bind_rows(
+  data.frame(term = "Pr_lvl1", estimate = 0, se = NA, p = NA, lo = NA, hi = NA, level = 1),
+  price_curve
+) %>% arrange(level)
+
+p1 <- ggplot(price_curve, aes(level, estimate)) +
+  geom_hline(yintercept = 0, linewidth = 0.3, colour = "grey70") +
+  geom_ribbon(aes(ymin = lo, ymax = hi), fill = "steelblue", alpha = 0.15) +
+  geom_line(colour = "steelblue", linewidth = 0.8) +
+  geom_point(colour = "steelblue", size = 1.8) +
+  scale_x_continuous(breaks = 1:12) +
+  labs(x = "Price level", y = "Utility coefficient (level 1 = reference)",
+       title = "Saturated price-level effects are monotone and convex") +
+  theme_minimal(base_size = 11)
+
+ggsave("figures/price_curve.png", p1, width = 7, height = 4.2, dpi = 200)
+cat("Wrote figures/price_curve.png\n")
+
+# =============================================================================
+# FIGURE 2: Covariate interaction coefficients with 95% CIs
+# =============================================================================
+int_labels <- c(
+  P_income = "Price x income", P_age = "Price x age",
+  P_miles = "Price x mileage", P_night = "Price x night driving",
+  In_income = "Inside x income", In_age = "Inside x age",
+  In_miles = "Inside x mileage", In_night = "Inside x night driving",
+  In_gender = "Inside x gender", In_urb = "Inside x urbanicity",
+  In_educ = "Inside x education", P_task = "Price x task position",
+  In_task = "Inside x task position"
+)
+interactions <- coef_df %>%
+  filter(term %in% names(int_labels)) %>%
+  mutate(label = int_labels[term],
+         sig = ifelse(p < 0.05, "95% CI excludes 0", "not significant")) %>%
+  arrange(estimate)
+interactions$label <- factor(interactions$label, levels = interactions$label)
+
+p2 <- ggplot(interactions, aes(estimate, label, colour = sig)) +
+  geom_vline(xintercept = 0, linewidth = 0.3, colour = "grey60") +
+  geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0.25, linewidth = 0.6) +
+  geom_point(size = 2) +
+  scale_colour_manual(values = c("95% CI excludes 0" = "firebrick",
+                                 "not significant" = "grey55")) +
+  labs(x = "Coefficient (95% CI)", y = NULL, colour = NULL,
+       title = "Observed heterogeneity: covariate interactions that transfer") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+ggsave("figures/coef_interactions.png", p2, width = 7, height = 4.6, dpi = 200)
+cat("Wrote figures/coef_interactions.png\n")
+
+# =============================================================================
+# FIGURE 3: XGBoost gain-based importance (deployed config, fixed-seed refit)
+# =============================================================================
+xgb_covariates <- c("segmentind","yearind","milesind","milesa","nightind","nighta",
+                     "pparkind","genderind","ageind","agea","educind",
+                     "regionind","Urbind","incomeind","incomea")
+xgb_feature_cols <- function(df) {
+  attr_wide <- paste0(rep(attrs, each = 4), rep(1:4, times = length(attrs)))
+  price_wide <- paste0("Price", 1:4)
+  df[, c(attr_wide, price_wide, xgb_covariates)]
+}
+train$Choice <- max.col(train[, c("Ch1","Ch2","Ch3","Ch4")])
+X_tr <- as.matrix(xgb_feature_cols(train))
+xgb_tr <- xgb.DMatrix(data = X_tr, label = train$Choice - 1)
+set.seed(1)
+xgb_params <- list(objective = "multi:softprob", num_class = 4,
+                   eval_metric = "mlogloss",
+                   eta = 0.1, max_depth = 4, subsample = 0.8, colsample_bytree = 0.8)
+xgb_full <- xgb.train(params = xgb_params, data = xgb_tr, nrounds = 73, verbose = 0)
+
+imp <- xgb.importance(model = xgb_full)
+imp_top <- head(imp[order(-imp$Gain), ], 15)
+imp_top$Feature <- factor(imp_top$Feature, levels = rev(imp_top$Feature))
+
+p3 <- ggplot(imp_top, aes(Gain, Feature)) +
+  geom_col(fill = "darkorange", alpha = 0.85) +
+  labs(x = "Gain (fraction of total)", y = NULL,
+       title = "XGBoost gain-based importance (top 15)",
+       caption = "Gain-based; not comparable to logit coefficients. Fixed-seed refit of the deployed configuration.") +
+  theme_minimal(base_size = 11)
+
+ggsave("figures/xgb_importance.png", p3, width = 7, height = 4.6, dpi = 200)
+cat("Wrote figures/xgb_importance.png\n")
+
+# =============================================================================
+# FIGURE 4: Cross-model agreement summary
+# Map xgboost's per-column importance up to a covariate "family" and compare
+# with whether the logit assigns that family a significant interaction.
+# =============================================================================
+family_of <- function(feat) {
+  if (grepl("^Price[1-4]$", feat)) return("price")
+  if (grepl("^segmentind$", feat)) return("segment")
+  if (grepl("income", feat)) return("income")
+  if (grepl("age", feat)) return("age")
+  if (grepl("miles", feat)) return("mileage")
+  if (grepl("night", feat)) return("night driving")
+  if (grepl("gender", feat)) return("gender")
+  if (grepl("Urb", feat)) return("urbanicity")
+  if (grepl("educ", feat)) return("education")
+  if (grepl("region", feat)) return("region")
+  if (grepl("ppark", feat)) return("parking")
+  if (grepl("year", feat)) return("year")
+  return("safety attribute")
+}
+imp$family <- vapply(imp$Feature, family_of, character(1))
+xgb_family <- imp %>% group_by(family) %>% summarise(xgb_gain = sum(Gain), .groups = "drop")
+
+logit_family_sig <- coef_df %>%
+  filter(term %in% names(int_labels)) %>%
+  mutate(family = case_when(
+    grepl("income", term) ~ "income",
+    grepl("age", term) ~ "age",
+    grepl("miles", term) ~ "mileage",
+    grepl("night", term) ~ "night driving",
+    grepl("gender", term) ~ "gender",
+    grepl("urb", term) ~ "urbanicity",
+    grepl("educ", term) ~ "education",
+    grepl("task", term) ~ "task position",
+    TRUE ~ "other")) %>%
+  group_by(family) %>%
+  summarise(logit_min_p = min(p), .groups = "drop") %>%
+  mutate(logit_sig = logit_min_p < 0.05)
+
+agree <- xgb_family %>%
+  left_join(logit_family_sig, by = "family") %>%
+  filter(!family %in% c("safety attribute")) %>%
+  mutate(logit_sig = ifelse(is.na(logit_sig), FALSE, logit_sig)) %>%
+  arrange(desc(xgb_gain))
+agree$family <- factor(agree$family, levels = rev(agree$family))
+
+p4 <- ggplot(agree, aes(xgb_gain, family, fill = logit_sig)) +
+  geom_col(alpha = 0.85) +
+  scale_fill_manual(values = c("TRUE" = "seagreen", "FALSE" = "grey65"),
+                    labels = c("TRUE" = "significant logit interaction",
+                               "FALSE" = "no significant logit interaction"),
+                    name = NULL) +
+  labs(x = "XGBoost gain (summed within covariate family)", y = NULL,
+       title = "Cross-model agreement on which covariates matter") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+ggsave("figures/cross_model.png", p4, width = 7, height = 4.6, dpi = 200)
+cat("Wrote figures/cross_model.png\n")
+
+cat("\nAll four figures written to figures/.\n")
