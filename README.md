@@ -17,13 +17,23 @@ Each observation contains four alternative safety-feature bundles, with exactly 
 
 ## Current status
 
-Best model so far: a 70/30 ensemble of a conditional logit (dummy-coded attributes +
-price/opt-out heterogeneity by covariates, car segment, task position, region, and
-parking situation) with an XGBoost multiclass model. CV log loss **1.1517**, public
-leaderboard **1.204** (submitted 2026-07-26). Full model history, findings, and current
-next steps live in [`AGENTS.md`](AGENTS.md) and [`cleaning_log.md`](cleaning_log.md) --
-read those first before starting new work. Every model tried (submitted or not) is
-tracked with its validation/public log loss in [`submissions_log.csv`](submissions_log.csv).
+**The competition has closed (1 Aug 2026) and the private leaderboard is visible.
+The report is due separately, 10 Aug 2026, 12:00 PM SGT.**
+
+Final selected submission: `segment_shift_v15` -- the ensemble_v11+MLP+set-context
+network stack (conditional logit with dummy-coded attributes, Price as a 12-level
+factor, covariate/segment/task/region/parking heterogeneity, choice-set context
+effects, blended with XGBoost, a shallow MLP, and a set-context neural network),
+with two structurally unreliable market-segment terms (`In_seg3`, `In_seg5`)
+pruned from the logit component after a segment train/test distribution-shift
+audit. CV log loss **1.143255**, public leaderboard **1.200**, private
+leaderboard **1.199** (`submission_segment_shift_v15_candidate.csv`, submitted
+2026-07-31). See `cleaning_log.md` / `submissions_log.csv` for the full discussion,
+relevant for the report's public-vs-private section. Full model history, findings, and current next
+steps live in
+[`AGENTS.md`](AGENTS.md) and [`cleaning_log.md`](cleaning_log.md) -- read those first
+before starting new work. Every model tried (submitted or not) is tracked with its
+validation/public log loss in [`submissions_log.csv`](submissions_log.csv).
 
 ## Data
 
