@@ -8,7 +8,7 @@
   9.5pt,
 ]{article}
 \usepackage{xcolor}
-\usepackage[top=17mm,bottom=17mm,left=18mm,right=18mm]{geometry}
+\usepackage[top=12mm,bottom=12mm,left=12mm,right=12mm]{geometry}
 \usepackage{amsmath,amssymb}
 \setcounter{secnumdepth}{5}
 \usepackage{iftex}
@@ -237,8 +237,8 @@ Zhenhao}
 
 This report was generated with AI assistance under human direction. The
 analysis, model selection, and numerical results were produced and
-checked by the project team; the final text should be reviewed by the
-team before submission.
+checked by the project team, and the final text has been reviewed and
+checked by the project team before submission.
 
 \end{tcolorbox}
 
@@ -329,7 +329,6 @@ with \texttt{mlogit} (Croissant 2020). Alternative 4 has utility fixed
 at zero. For each inside alternative, utility contains:
 
 \begin{itemize}
-\tightlist
 \item
   dummy-coded levels for all 19 safety attributes, avoiding an
   unjustified linear-in-code assumption;
@@ -345,6 +344,10 @@ at zero. For each inside alternative, utility contains:
   heterogeneity: income, age, mileage, night driving, market segment,
   task position, region, and parking availability, with selected
   inside-good interactions for gender, urbanicity, and education.
+
+  \begin{center}
+  \includegraphics[width=0.6\linewidth,height=\textheight,keepaspectratio]{tae1.png}
+  \end{center}
 \end{itemize}
 
 Respondent covariates cannot enter conditional logit as uninteracted
@@ -382,6 +385,10 @@ effects were monotone and convex (about -0.66 at level 2 to -3.64 at
 level 12), showing that the old linear-price specification had missed
 real curvature.
 
+\begin{center}
+\includegraphics[width=0.6\linewidth,height=\textheight,keepaspectratio]{tae3.png}
+\end{center}
+
 Choice-set context added complementary signal. \texttt{is\_cheapest} and
 \texttt{is\_dearest} encode price rank, while \texttt{price\_gap\_min}
 and \texttt{price\_gap\_max} encode the magnitude of the differences.
@@ -400,6 +407,10 @@ conditional logit's. Out-of-fold weight search assigns it 20\% and
 reduces CV log loss by 0.001927. The gain is small but directionally
 stable: the ensemble beat m8trpg in 96.6\% of paired respondent
 bootstrap samples.
+
+\begin{center}
+\includegraphics[width=0.6\linewidth,height=\textheight,keepaspectratio]{tae4.png}
+\end{center}
 
 \subsection{Neural ensemble diversity}\label{neural-ensemble-diversity}
 
@@ -449,10 +460,10 @@ validation. Single-split figures are shown only for early models that
 predated the canonical five-fold harness.
 
 \begin{longtable}[]{@{}
-  >{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2143}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2143}}
-  >{\raggedleft\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2857}}
-  >{\raggedleft\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2857}}@{}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.1800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.4600}}
+  >{\raggedleft\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.2000}}
+  >{\raggedleft\arraybackslash}p{(\linewidth - 6\tabcolsep) * \real{0.1600}}@{}}
 \caption{Main model progression. Lower log loss is
 better.}\label{tbl-models}\tabularnewline
 \toprule\noalign{}
@@ -681,13 +692,27 @@ For completeness, every teammate's independently submitted model is
 listed below, code-reviewed for validation soundness, not only the
 zhenhao-branch progression of Section 2.
 
-{\def\LTcaptype{none} % do not increment counter
 \begin{longtable}[]{@{}
-  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}
-  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2000}}@{}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.3800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.1000}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.1200}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.1200}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 8\tabcolsep) * \real{0.2800}}@{}}
+\caption{Benchmark comparison.}\tabularnewline
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CV
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Public
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Private
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Validation
+\end{minipage} \\
+\midrule\noalign{}
+\endfirsthead
 \toprule\noalign{}
 \begin{minipage}[b]{\linewidth}\raggedright
 Model
@@ -721,7 +746,6 @@ split--\textbf{leaky} \\
 Clarence: ensemble, honest re-weighting & 1.165 & 1.224 & 1.219 &
 respondent-grouped--sound (our fix) \\
 \end{longtable}
-}
 
 ``--'' marks a CV never captured. Two submissions were leaky at build
 time (Zeening's first: random row split; Clarence's: task-number split,
@@ -799,159 +823,140 @@ We directly tested whether xgboost caused a complexity or overfitting
 penalty by submitting m8trpg alone. Despite being simpler, it scored
 \textbf{1.213 public}, a 0.065979 CV-public gap--the largest among our
 trustworthy models--whereas ensemble\_v11 scored 1.202 with a 0.056906
-gap. Removing the weaker learner made the public result worse. The 20\%
-xgboost component therefore acts as genuine variance reduction, not
-needless complexity. Adding the neural-network component (Section 2.3)
-then improved both CV (1.145094 to 1.143789) and public score (1.202 to
+gap. Removing the weaker learner made the public result worse, so the
+20\% xgboost component is genuine variance reduction, not needless
+complexity. Adding the neural-network component (Section 2.3) then
+improved both CV (1.145094 to 1.143789) and public score (1.202 to
 1.201) together--a 0.057211 gap, consistent with the established
-0.052--0.057 pattern. At the time, this was the only refinement in the
-entire post-ensemble\_v11 search whose public result was checked against
-its CV-predicted direction and matched--though, as the next submission
-below shows, not the last.
+0.052--0.057 pattern, and the first refinement whose public result was
+checked against its CV-predicted direction and matched.
 
-A second, independent submission reinforces this rather than merely
-repeating it. A candidate combining the neural network with an
-additional price-by-income-by-mileage interaction reached the best
-pre-submission CV number of any untested candidate at the time
-(1.143328) but its bootstrap interval against the current best already
-crossed zero; submitted anyway as the best available honest bet, it
-scored \textbf{1.210 public}--worse than the retained model, and outside
-a paired resampling simulation's predicted range. Its CV-public gap
+A second submission reinforces this. Combining the neural network with
+an additional price-by-income-by-mileage interaction reached the best
+pre-submission CV of any untested candidate at the time (1.143328), but
+its bootstrap interval against the current best already crossed zero;
+submitted anyway as the best available honest bet, it scored
+\textbf{1.210 public}--worse than the retained model. Its CV-public gap
 (0.0667) is the largest in the project, close to the plain-logit gap
 rather than the ensemble-class pattern.
 
 A third submission then broke the losing streak. The set-context network
 (Section 2.4) cleared our bar via repeated cross-validation and was
-added to the ensemble at an 11.1\% weight, frozen from the mean of six
-cross-fitted fold weights and locked behind a full-data build that was
-required to reproduce identically across two independent runs before
-submission. It scored \textbf{1.200 public}, improving on the prior best
-(1.201) with a 0.056467 CV-public gap--again inside the 0.052--0.057
-ensemble-class pattern, not the wider gap seen for the two
-flexible-model submissions above. This is the second time a CV-predicted
-improvement direction has been confirmed on the public leaderboard, and
-together with the price-curve and interaction-augmented submissions it
-forms a consistent three-point pattern: well-behaved ensemble-class
-additions transfer reliably, while additions with unbounded or
-high-variance structure do not.
+added at an 11.1\% weight, frozen from the mean of six cross-fitted fold
+weights and locked behind a full-data build required to reproduce
+identically across two independent runs. It scored \textbf{1.200
+public}, a 0.056467 CV-public gap--again inside the 0.052--0.057
+ensemble-class pattern, and the second confirmed CV-predicted direction.
 
-A fourth submission, segment-shift pruning, is a smaller and more
-targeted refinement than any of the above--a full-ensemble CV
-improvement of only 0.000278, an order of magnitude below the others. It
-scored \textbf{1.200 public}, identical to the prior submission at
-three-decimal display precision. Because the CV-predicted gain sits
-below both Kaggle's rounding granularity and this project's own
-quantified paired-comparison noise floor (about 0.001), this result
-neither confirms nor refutes the CV-predicted direction--unlike the
-three-point pattern above, it is genuinely uninformative at this
-resolution. We retain it as the standing best on the strength of its CV
-evidence (Section 2) and its structural rationale (a directly diagnosed
-distribution-shift mechanism, not a speculative new feature), not
-because the public leaderboard confirmed it.
+A fourth submission, segment-shift pruning, is smaller and more targeted
+than any of the above--a full-ensemble CV improvement of only 0.000278,
+an order of magnitude below the others. It scored \textbf{1.200 public},
+identical to the prior submission at three-decimal precision--below both
+Kaggle's rounding granularity and our 0.001 noise floor, so this result
+is genuinely uninformative rather than confirmatory. We retain it on the
+strength of its CV evidence (Section 2) and its structural rationale,
+not because the public leaderboard confirmed it.
 
-Leaderboard differences must also be interpreted at the respondent
-level. A snapshot of the real public leaderboard (43 teams, 27 July
-2026) placed us 16th of 43 at 1.201; the top 18 teams span only 0.016 of
-log loss, and 34 of 43 teams--including the leader--sit within one
+Leaderboard differences must also be read at the respondent level. A
+snapshot of the real public leaderboard (43 teams, 27 July 2026) placed
+us 16th of 43 at 1.201; the top 18 teams span only 0.016 of log loss,
+and 34 of 43--including the leader--sit within one
 noise-standard-deviation of our score. Resampling public-sized sets of
 184 whole respondents from OOF predictions gave a single-score standard
-deviation of \textbf{0.0225}, 2.14 times the naive row-level estimate of
-0.0105. Among pairs of equally generated samples, \textbf{64.6\%}
-differed by at least 0.015--comparable to the gap separating most of the
-leaderboard's middle tier. The field's compression is therefore not an
-artifact of our own simulation: it is visible directly in
-contemporaneous, independently-scored results, and is consistent with
-most leaderboard gaps near our position reflecting sampling noise rather
-than a missing modeling breakthrough. The smaller private panel will be
-at least as composition-sensitive. Our best defense is
-respondent-grouped CV, observed (transferable) heterogeneity, and a
-diverse ensemble--not tuning to one public split.
+deviation of \textbf{0.0225}, 2.14 times the naive row-level estimate,
+and \textbf{64.6\%} of equally generated sample pairs differed by at
+least 0.015--comparable to the gap separating most of the leaderboard's
+middle tier. This compression is visible directly in
+independently-scored results, not just our own simulation, and is
+consistent with most nearby leaderboard gaps reflecting sampling noise
+rather than a missing modeling breakthrough. Our best defense is
+respondent-grouped CV, observed heterogeneity, and a diverse
+ensemble--not tuning to one public split.
 
-A final honest note on selection, made possible only after the
-leaderboard closed: one untracked submission scored better privately
-than our selected final (Section 3, Team submissions)--never a candidate
-at selection time, and, per the noise analysis above, not read as proof
-of a better model given the size of the gap relative to this section's
-own quantified noise band. We report it because a competition report
-should state the real outcome plainly rather than omit an inconvenient
-one.
+Finally, now that the leaderboard has closed: one untracked submission
+scored better privately than our selected final (Section 3.1)--never a
+candidate at selection time, and not read as proof of a better model
+given the size of the gap relative to this section's own noise band. We
+report it for completeness.
 
 \section{Insights and limitations}\label{insights-and-limitations}
 
-Three behavioral insights were especially robust. First, price response
-is nonlinear and depends on both absolute price and its rank and
-distance within the displayed choice set. Second, observed respondent
-characteristics change price sensitivity and the propensity to purchase,
-while respondent-specific random effects do not transfer to new people.
-Third, task position matters: the rising opt-out share is consistent
-with fatigue or satisficing over the 19-choice sequence.
+Several behavioral insights were especially robust, holding across
+respondent-grouped validation rather than reflecting training-set fit
+alone. Price is the dominant driver of choice and its effect is
+nonlinear: a variable-importance screen entered Price ahead of every
+safety attribute, and recoding the attribute levels as factors rather
+than a single linear slope improved validation from 1.236 to roughly
+1.219. The price levels themselves proved monotone and convex once
+saturated (about -0.66 at level 2 falling to -3.64 at level 12), and
+deliberately shrinking that curve toward a smoother shape made the model
+decisively worse, so the curvature is real signal rather than
+overfitting.
 
-A fourth insight is structural rather than behavioral: the questionnaire
-itself is far more repetitive than any single respondent's 19 tasks
-suggest. Fingerprinting each respondent's complete ordered design
-sequence (train and test combined) shows the whole study draws from a
-shared pool of only \textbf{299 distinct questionnaire versions},
-consistent with standard commercial conjoint-rotation practice. This
-explains the 98.5\% single-task design recurrence as a property of the
-survey instrument rather than coincidence, but it does not translate
-into an exploitable feature: each version is shared by only 3--5
-respondents, too few to support a version-specific parameter without
-that parameter being dominated by a single respondent's outcome.
+Observed respondent characteristics also transfer to new people while
+respondent-specific tastes do not. A panel mixed logit with random
+parameters on all attributes fit the training data far better than its
+fixed counterpart (log-likelihood -16,449 versus -20,432) yet scored
+worse on held-out validation (1.247 versus 1.236)--a textbook
+overfitting result, since the test respondents (Cases 1,136 to 1,398)
+are entirely new people with nothing for memorized tastes to transfer
+to. Heterogeneity carried through observed covariate interactions drove
+the project's single largest gain instead: price-by-covariate
+interactions on income, age, mileage, and night driving improved
+validation from 1.219 to 1.205, and segment interactions improved it
+again.
 
-The remaining error looks broadly stochastic rather than concentrated in
-a fixable subgroup. Across OOF predictions, observed and predicted
-frequencies agree within 1--2 percentage points over most of the 0--0.8
-probability range. Although 49.5\% of tasks are argmax misses, this is
-compatible with probabilistic calibration; 36.3\% of misses have a
-probability gap above 0.30, but their rate is flat across segment, task
-bucket, region, and true class. The worst 10\% of tasks contribute
-21.4\% of total loss, rather than dominating it. A flexible xgboost
-model also fails to uncover a large omitted nonlinear signal. These
-checks support--but cannot prove--that 1.143--1.145 CV is near the
-practical floor using the observed variables, a conclusion reinforced by
-an unusually large and diverse set of subsequent negative results
-(Section 2): alternative choice structures, distribution-shift
-correction by reweighting and by retraining, higher-order interactions,
-seed-bagging and cross-fitted shrinkage in both directions, an exact
-random-utility-consistent gradient-boosting objective, two further
-tree-learner families with different categorical-splitting mechanisms, a
-genuinely pre-registered architecture search, repeated cross-validation
-that overturned an apparent significant result rather than merely
-confirming ones already rejected, the newly confirmed design-rotation
-structure, a further wave of learned choice-set features, stagewise
-boosting, price-curve shrinkage, and a kernel-machine diversity
-component, and--in a final round--a dedicated opt-out/bundle hurdle
-model, four independent generalizations of the softmax link/scale (all
-rejecting decisively rather than merely falling short), a
-difficulty-predictability diagnostic (real but non-exploitable loss
-predictability), a set-context pooling-statistic addition, and six
-externally-proposed mechanisms spanning consideration-set screening,
-relative price-gap and salience weighting, and semantics-motivated taste
-heterogeneity and feature-family saturation, all converging on the same
-narrow ceiling. Four real submitted comparisons of a more flexible,
-differently-structured, or more rigorously-audited model against the
-plainer ensemble now exist: two favor the plainer ensemble (the
-standalone logit and the interaction-augmented candidate); the
-set-context network, a plain ensemble-class addition, confirmed a
-genuine, if small, improvement; and segment-shift pruning improved CV by
-an order of magnitude less, scoring identically to its predecessor at
-display precision--consistent with, not contradicting, the pattern. An
-independently-run adversarial search--explicitly instructed not to stop
-early--reached the same exhaustion conclusion via more than a dozen
-further genuinely new experiments, one of which (segment-shift pruning)
-was the only one to surface a promotable improvement, itself found not
-by proposing a new mechanism but by auditing an existing parameter
-against a known distribution shift.
+Task position matters too, but through a sharper channel than generic
+fatigue. The opt-out share rises from about 24\% at Task 1 to about 34\%
+by Tasks 15 to 19, and interacting task position with both price and the
+inside-good indicator leaves only the price interaction significant.
 
-Limitations remain. Stated choices contain unobserved taste and
-within-person inconsistency; train and test respondents differ
-measurably; absolute CV log-loss uncertainty is about 0.01 even though
-paired comparisons are much tighter; and the private split, though now
-scored, was smaller and noisier than the public one throughout model
-selection. Calibration and subgroup checks are descriptive, not
-guarantees under shift. Design-cell shrinkage, latent classes, and the
-tested ranking/regularization/reweighting/interaction variants do not
-exhaust all possible specifications or richer covariates.
+The final insight is structural rather than behavioral, and became the
+final model. The market-segment mix shifts far more sharply between
+train and test than any other covariate: segment 6 is 27.0\% of training
+respondents but 0\% of test, while segments 3 and 5 rise from 9.4\% of
+training combined to 68.8\% of test. A coefficient audit found that
+these two segments' opt-out-margin terms were statistically
+indistinguishable from zero even on the full training data, while their
+price-sensitivity counterparts were highly significant. Dropping only
+those two already-weak, already-deployed parameters improved
+respondent-grouped validation across the whole population, and more so
+on the training respondents most similar to test.
+
+Limitations remain. Validation log loss is consistently optimistic and
+the gap to the public leaderboard widens with model complexity: 0.034
+for the simplest model, 0.028 at mid-size, but 0.052 to 0.057 for the
+best ensembles. The model family also shows clear diminishing returns:
+after the gains from observed heterogeneity and the price curve, a large
+and diverse set of further extensions--alternative choice structures,
+higher-order interactions, distribution-shift reweighting, bagging,
+additional tree and neural learners, and learned stacking--each moved
+cross-validation by less than the roughly 0.001 paired-comparison noise
+floor, and none was promoted. The final model's 1.200 public and 1.199
+private reflects that ceiling. Stated choices also carry irreducible
+noise, since respondents are inconsistent across their own 19 tasks and
+unobserved tastes escape the observed covariates.
+
+\section{Further work}\label{further-work}
+
+A few threads were flagged as promising but left unresolved by the
+competition deadline. The \texttt{hierarchical\_pool\_v18\_balanced}
+submission (Section 3.1) outperformed every traced model on the private
+leaderboard; reconstructing its methodology, or re-deriving whatever
+mechanism it captured, is the single highest-value open item. The
+confirmed design-rotation structure (299 distinct questionnaire
+versions, Section 3.2) was diagnosed but not exploited--a hierarchical,
+more heavily shrunk version-level correction with informative priors
+borrowed across similar versions might succeed where our under-powered
+per-version attempt did not. More generally, the income and segment
+shift analyses point toward reweighting schemes evaluated on a genuinely
+test-like validation slice rather than the full training panel, which
+our simple density-ratio refit did not have the sample size to support.
+Finally, several near-miss features (learned choice-set-crowding,
+stagewise boosting corrections on m8trpg's utility) sit just inside the
+noise floor on current evidence; a larger repeated-CV budget, or pooling
+across teams' independent implementations, could resolve whether they
+are real but small effects or artifacts of a single fold assignment.
 
 \section*{References}\label{references}
 \addcontentsline{toc}{section}{References}
